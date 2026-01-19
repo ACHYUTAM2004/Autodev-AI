@@ -20,6 +20,8 @@ def build_project(payload: dict):
     result = run_autodev_graph(initial_state)
 
     return {
-        "message": "Build process finished",
-        "status": result["status"],
-    }
+    "message": "Planner executed successfully",
+    "plan": result["plan"],
+    "status": result["status"],
+}
+

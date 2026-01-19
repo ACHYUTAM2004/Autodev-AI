@@ -1,6 +1,10 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI
 from app.api.build import router as build_router
 from app.core.logger import setup_logger
+
 
 setup_logger()
 
