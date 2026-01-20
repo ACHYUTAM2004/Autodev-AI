@@ -11,17 +11,15 @@ def build_project(payload: dict):
         "plan": [],
         "tech_decisions": {},
         "files": {},
-        "test_results": {},
         "errors": [],
-        "review_feedback": [],
-        "status": "in_progress",
+        "status": "in_progress"
     }
 
     result = run_autodev_graph(initial_state)
 
     return {
-    "message": "Planner executed successfully",
-    "plan": result["plan"],
-    "status": result["status"],
-}
-
+        "message": "Planner + Tech Lead executed successfully",
+        "plan": result.get("plan"),
+        "tech_decisions": result.get("tech_decisions"),
+        "status": result.get("status")
+    }

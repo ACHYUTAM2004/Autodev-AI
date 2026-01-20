@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     environment: str = "development"
     log_level: str = "INFO"
 
-    # ✅ ADD THIS
     google_api_key: str
 
     class Config:

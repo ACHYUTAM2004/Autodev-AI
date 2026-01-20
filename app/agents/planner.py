@@ -2,6 +2,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Dict, Any
 
+from app.agents.utils import extract_text_from_response
+
 
 PLANNER_PROMPT = ChatPromptTemplate.from_template("""
 You are a senior software engineer acting as a planner.
@@ -17,24 +19,28 @@ Return ONLY a numbered list of steps.
 
 
 def planner_agent(state: Dict[str, Any]) -> Dict[str, Any]:
-    # Gemini LLM (lazy initialization)
     llm = ChatGoogleGenerativeAI(
         model="gemini-flash-latest",
         temperature=0
     )
 
-    description = state["user_input"].get("description", "")
+    description = state.get("user_input", {}).get("description", "")
 
     response = llm.invoke(
         PLANNER_PROMPT.format_messages(description=description)
     )
 
-    steps = [
-        line.strip("0123456789. ")
-        for line in response.content.split("\n")
-        if line.strip()
-    ]
+    content = extract_text_from_response(response)
 
-    state["plan"] = steps
-    state["status"] = "completed"
+    plan = []
+    for line in content.split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+
+        cleaned = line.strip("0123456789. )")
+        if cleaned:
+            plan.append(cleaned)
+
+    state["plan"] = plan
     return state
