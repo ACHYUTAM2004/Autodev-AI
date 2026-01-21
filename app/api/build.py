@@ -1,36 +1,29 @@
 from fastapi import APIRouter
 from app.graph.flow import run_autodev_graph
+from app.jobs.manager import JobManager
 
 router = APIRouter()
 
 
 @router.post("/build")
 def build_project(payload: dict):
-    # Initial shared state for the entire agent graph
-    initial_state = {
-        "user_input": payload,
-        "plan": [],
-        "tech_decisions": {},
-        "files": {},          # ✅ where coder agent will write code
-        "errors": [],
-        "status": "in_progress"
-    }
+    # 1. Create job
+    job_state = JobManager.create_job(payload)
 
-    final_state = run_autodev_graph(initial_state)
+    try:
+        # 2. Run pipeline
+        final_state = run_autodev_graph(job_state)
+        final_state.status = "completed"
+
+    except Exception as e:
+        final_state = job_state
+        final_state.status = "failed"
+        final_state.errors.append(str(e))
+
+    # 3. Persist final state
+    JobManager.update_job(final_state)
 
     return {
-        "message": "AutoDev pipeline executed successfully",
-        "status": final_state.get("status"),
-
-        # Planner output
-        "plan": final_state.get("plan"),
-
-        # Tech Lead output
-        "tech_decisions": final_state.get("tech_decisions"),
-
-        # Coder output (NEW)
-        "files": final_state.get("files"),
-
-        # Optional: surface errors if any agent failed
-        "errors": final_state.get("errors")
+        "job_id": final_state.job_id,
+        "status": final_state.status
     }
