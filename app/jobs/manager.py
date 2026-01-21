@@ -14,7 +14,7 @@ class JobManager:
 
         state = JobState(
             job_id=job_id,
-            status="running",
+            status="created",
             created_at=datetime.utcnow(),
             user_input=user_input,
         )
@@ -23,14 +23,22 @@ class JobManager:
         return state
 
     @staticmethod
+    def update_job_status(job_id: str, status: str) -> None:
+        write_json(job_id, "status.json", status)
+
+    @staticmethod
     def update_job(state: JobState) -> None:
         JobManager._persist_state(state)
 
     @staticmethod
     def load_job(job_id: str) -> Dict[str, Any] | None:
+        status = read_json(job_id, "status.json")
+        if status is None:
+            return None
+
         return {
             "job_id": job_id,
-            "status": read_json(job_id, "status.json"),
+            "status": status,
             "user_input": read_json(job_id, "input.json"),
             "plan": read_json(job_id, "plan.json"),
             "tech_decisions": read_json(job_id, "tech_decisions.json"),
