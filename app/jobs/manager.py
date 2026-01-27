@@ -8,6 +8,10 @@ from app.jobs.storage import write_json, read_json
 
 class JobManager:
 
+    # -------------------------
+    # Job lifecycle
+    # -------------------------
+
     @staticmethod
     def create_job(user_input: Dict[str, Any]) -> JobState:
         job_id = str(uuid.uuid4())
@@ -23,28 +27,61 @@ class JobManager:
         return state
 
     @staticmethod
-    def update_job_status(job_id: str, status: str) -> None:
-        write_json(job_id, "status.json", status)
-
-    @staticmethod
     def update_job(state: JobState) -> None:
         JobManager._persist_state(state)
 
     @staticmethod
-    def load_job(job_id: str) -> Dict[str, Any] | None:
-        status = read_json(job_id, "status.json")
-        if status is None:
-            return None
+    def update_job_status(job_id: str, status: str) -> None:
+        write_json(job_id, "status.json", status)
+
+    # -------------------------
+    # ✅ Phase 5C-1 helpers
+    # -------------------------
+
+    @staticmethod
+    def update_progress(
+        job_id: str,
+        *,
+        progress: int,
+        current_agent: str | None = None,
+        current_step: str | None = None,
+    ) -> None:
+        write_json(job_id, "progress.json", {
+            "progress": progress,
+            "current_agent": current_agent,
+            "current_step": current_step,
+        })
+
+    # -------------------------
+    # Load job
+    # -------------------------
+
+    @staticmethod
+    def load_job(job_id: str) -> Dict[str, Any]:
+        progress_data = read_json(job_id, "progress.json") or {}
 
         return {
             "job_id": job_id,
-            "status": status,
+            "status": read_json(job_id, "status.json"),
             "user_input": read_json(job_id, "input.json"),
             "plan": read_json(job_id, "plan.json"),
             "tech_decisions": read_json(job_id, "tech_decisions.json"),
             "files": read_json(job_id, "files.json"),
             "errors": read_json(job_id, "errors.json"),
+
+            # Phase 5C-1
+            "progress": progress_data.get("progress", 0),
+            "current_agent": progress_data.get("current_agent"),
+            "current_step": progress_data.get("current_step"),
+
+            # ✅ Phase 5C-2
+            "logs": read_json(job_id, "logs.json") or [],
         }
+
+
+    # -------------------------
+    # Persistence
+    # -------------------------
 
     @staticmethod
     def _persist_state(state: JobState) -> None:
@@ -54,3 +91,13 @@ class JobManager:
         write_json(state.job_id, "tech_decisions.json", state.tech_decisions)
         write_json(state.job_id, "files.json", state.files)
         write_json(state.job_id, "errors.json", state.errors)
+
+        write_json(
+            state.job_id,
+            "progress.json",
+            {
+                "progress": state.progress,
+                "current_agent": state.current_agent,
+                "current_step": state.current_step,
+            },
+        )

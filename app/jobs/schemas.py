@@ -1,6 +1,6 @@
-from typing import Dict, Any, List
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 
 
 class JobState(BaseModel):
@@ -13,5 +13,9 @@ class JobState(BaseModel):
     plan: List[str] = []
     tech_decisions: Dict[str, Any] = {}
     files: Dict[str, str] = {}
-
     errors: List[str] = []
+
+    # ✅ Phase 5C-1 additions
+    current_agent: Optional[str] = None
+    current_step: Optional[str] = None
+    progress: int = Field(default=0, ge=0, le=100)

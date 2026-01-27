@@ -3,32 +3,60 @@ from typing import Dict, Any
 
 from app.graph.flow import run_autodev_graph
 from app.jobs.manager import JobManager
-from app.jobs.schemas import JobState
+from app.jobs.logger import JobLogger
+from app.jobs.storage import write_json
 
 
 def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
-    """
-    Background execution entrypoint.
-    """
-
     try:
-        # Mark job as running
         JobManager.update_job_status(job_id, "running")
 
-        # Run LangGraph
-        final_state_dict = run_autodev_graph(initial_state)
+        JobLogger.log(
+            job_id,
+            agent="system",
+            message="Job execution started",
+        )
 
-        # Convert back to JobState
-        final_state = JobState(**final_state_dict)
-        final_state.status = "completed"
+        JobManager.update_progress(
+            job_id,
+            progress=5,
+            current_agent="system",
+            current_step="Initializing pipeline",
+        )
 
-        # Persist final state
-        JobManager.update_job(final_state)
+        final_state = run_autodev_graph(initial_state)
+
+        JobLogger.log(
+            job_id,
+            agent="system",
+            message="Job execution completed successfully",
+        )
+
+        JobManager.update_progress(
+            job_id,
+            progress=100,
+            current_agent="system",
+            current_step="Completed",
+        )
+
+        write_json(job_id, "final_state.json", final_state)
+        JobManager.update_job_status(job_id, "completed")
 
     except Exception as exc:
-        failed_state = JobState(**initial_state)
-        failed_state.status = "failed"
-        failed_state.errors.append(str(exc))
-        failed_state.errors.append(traceback.format_exc())
+        JobLogger.log(
+            job_id,
+            agent="system",
+            level="ERROR",
+            message=str(exc),
+        )
 
-        JobManager.update_job(failed_state)
+        write_json(
+            job_id,
+            "error.json",
+            {
+                "error": str(exc),
+                "traceback": traceback.format_exc(),
+            },
+        )
+
+        JobManager.update_job_status(job_id, "failed")
