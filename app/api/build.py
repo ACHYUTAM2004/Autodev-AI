@@ -1,22 +1,24 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks
 from app.jobs.manager import JobManager
+from app.jobs.runner import run_job
 
-router = APIRouter(prefix="/jobs", tags=["Jobs"])
+router = APIRouter(prefix="/build", tags=["Build"])
 
 
-@router.get("/{job_id}")
-def get_job(job_id: str):
-    job = JobManager.load_job(job_id)
+@router.post("")
+def build_project(payload: dict, background_tasks: BackgroundTasks):
+    # 1. Create job
+    job_state = JobManager.create_job(payload)
 
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
+    # 2. Run job in background
+    background_tasks.add_task(
+        run_job,
+        job_state.job_id,
+        job_state.model_dump()
+    )
 
     return {
-        "job_id": job["job_id"],
-        "status": job["status"] or "unknown",
-        "user_input": job["user_input"] or {},
-        "plan": job["plan"] or [],
-        "tech_decisions": job["tech_decisions"] or {},
-        "files": job["files"] or {},
-        "errors": job["errors"] or [],
+        "job_id": job_state.job_id,
+        "status": "created",
+        "message": "Job submitted successfully",
     }

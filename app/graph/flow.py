@@ -4,10 +4,11 @@ from app.agents.coder import coder_agent
 
 from langgraph.graph import StateGraph
 from app.jobs.schemas import JobState
+from typing import Dict, Any
 
 
-def run_autodev_graph(state: JobState) -> JobState:
-    graph = StateGraph(JobState)
+def run_autodev_graph(state: Dict[str, Any]) -> Dict[str, Any]:
+    graph = StateGraph(dict)
 
     graph.add_node("planner", planner_agent)
     graph.add_node("tech_lead", tech_lead_agent)
@@ -18,6 +19,4 @@ def run_autodev_graph(state: JobState) -> JobState:
     graph.add_edge("tech_lead", "coder")
 
     runnable = graph.compile()
-    final_state = runnable.invoke(state)
-
-    return final_state
+    return runnable.invoke(state)

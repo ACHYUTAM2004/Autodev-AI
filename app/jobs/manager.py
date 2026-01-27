@@ -34,6 +34,7 @@ class JobManager:
     def update_job_status(job_id: str, status: str) -> None:
         write_json(job_id, "status.json", status)
 
+
     # -------------------------
     # ✅ Phase 5C-1 helpers
     # -------------------------
@@ -43,14 +44,18 @@ class JobManager:
         job_id: str,
         *,
         progress: int,
-        current_agent: str | None = None,
-        current_step: str | None = None,
+        current_agent: str,
+        current_step: str,
     ) -> None:
-        write_json(job_id, "progress.json", {
+        payload = {
             "progress": progress,
             "current_agent": current_agent,
             "current_step": current_step,
-        })
+        }
+
+        write_json(job_id, "progress.json", payload)
+
+
 
     # -------------------------
     # Load job
