@@ -82,11 +82,18 @@ class JobManager:
             # ✅ Phase 5C-2
             "logs": read_json(job_id, "logs.json") or [],
 
-            # Phase 6A-3
+            # Phase 6A
             "review": read_json(job_id, "review.json"),
 
-            # Phase 6B-1
+            # Phase 6B
             "tests": read_json(job_id, "tests.json"),
+
+            # Phase 6C-1
+            "debug": read_json(job_id, "debug.json"),
+
+            # Phase 6C-2
+            "patches": read_json(job_id, "patches.json"),
+
         }
 
 
@@ -104,6 +111,7 @@ class JobManager:
         write_json(state.job_id, "errors.json", state.errors)
         write_json(state.job_id, "review.json", state.review)
         write_json(state.job_id, "tests.json", state.tests)
+        write_json(state.job_id, "debug.json", state.debug)
 
         write_json(
             state.job_id,
@@ -114,3 +122,8 @@ class JobManager:
                 "current_step": state.current_step,
             },
         )
+
+        write_json(state.job_id, "patches.json", {
+    "count": state.patches_applied
+})
+

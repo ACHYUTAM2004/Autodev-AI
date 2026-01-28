@@ -23,6 +23,22 @@ class JobState(BaseModel):
     # Phase 6A
     review: Optional[Dict[str, Any]] = None
 
-    # Phase 6B-1
+    # Phase 6B
     tests: Optional[Dict[str, Any]] = None
+
+    # Phase 6C-1
+    debug: Optional[Dict[str,Any]] = None
+
+    # Phase 6C-2
+    patches_applied: int = 0
+
+    # Phase 6B-3
+    retry_count: int = 0
+    max_retries: int = 2
+
+    # Phase 6C-3
+    patches: List[Dict[str,Any]] = []
+
+
+
     

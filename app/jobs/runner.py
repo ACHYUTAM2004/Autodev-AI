@@ -8,11 +8,25 @@ from app.jobs.storage import write_json
 from app.jobs.schemas import JobState
 
 
+# ----------------------------
+# Phase 6C-3 configuration
+# ----------------------------
+CONFIDENCE_THRESHOLD = 0.7
+MAX_PATCHES_PER_RETRY = 2
+
+
 def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
     """
     Background job runner.
-    Executes LangGraph with dict state and enforces quality gates.
+
+    Responsibilities:
+    - Run LangGraph pipeline
+    - Enforce reviewer + tester quality gates
+    - Apply debugger patches with confidence ranking
+    - Retry bounded times
+    - Persist state safely
     """
+
     try:
         # ----------------------------
         # Job started
@@ -25,92 +39,151 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
             message="Job execution started",
         )
 
-        JobManager.update_progress(
-            job_id,
-            progress=5,
-            current_agent="system",
-            current_step="Initializing pipeline",
-        )
-
         # ----------------------------
-        # Ensure dict input for LangGraph
+        # Ensure dict input
         # ----------------------------
-        graph_input: Dict[str, Any] = (
+        state: Dict[str, Any] = (
             initial_state.model_dump()
             if isinstance(initial_state, JobState)
             else initial_state
         )
 
-        # ----------------------------
-        # Run AutoDev graph
-        # ----------------------------
-        final_state_dict = run_autodev_graph(graph_input)
+        retry_count = state.get("retry_count", 0)
+        max_retries = state.get("max_retries", 2)
 
-        # ----------------------------
-        # 🔒 REVIEW QUALITY GATE (Phase 6A)
-        # ----------------------------
-        review = final_state_dict.get("review")
-        if review and review.get("verdict") != "approve":
+        # ===================================
+        # 🔁 RETRY LOOP (Phase 6B-3)
+        # ===================================
+        while retry_count <= max_retries:
+
             JobLogger.log(
                 job_id=job_id,
-                agent="reviewer",
-                level="ERROR",
-                message="Reviewer rejected the generated code",
-            )
-
-            JobManager.update_job_status(job_id, "blocked_review")
-            write_json(job_id, "final_state.json", final_state_dict)
-            return  # ⛔ STOP PIPELINE
-
-        # ----------------------------
-        # 🔒 TESTER QUALITY GATE (Phase 6B)
-        # ----------------------------
-        tests = final_state_dict.get("tests")
-        if tests and not tests.get("passed"):
-            JobLogger.log(
-                job_id=job_id,
-                agent="tester",
-                level="ERROR",
-                message="Tester quality gate failed",
+                agent="system",
+                message=f"Execution attempt {retry_count + 1}",
             )
 
             JobManager.update_progress(
                 job_id,
-                progress=100,
-                current_agent="tester",
-                current_step="Quality gate failed",
+                progress=10 + retry_count * 20,
+                current_agent="system",
+                current_step=f"Attempt {retry_count + 1}",
             )
 
-            JobManager.update_job_status(job_id, "failed")
+            # -----------------------------------
+            # Run AutoDev graph
+            # -----------------------------------
+            final_state_dict = run_autodev_graph(state)
+
+            # -----------------------------------
+            # 🔒 REVIEW QUALITY GATE (6A)
+            # -----------------------------------
+            review = final_state_dict.get("review")
+            if review and review.get("verdict") != "approve":
+                JobLogger.log(
+                    job_id=job_id,
+                    agent="reviewer",
+                    level="ERROR",
+                    message="Reviewer rejected the generated code",
+                )
+
+                JobManager.update_job_status(job_id, "blocked_review")
+                write_json(job_id, "final_state.json", final_state_dict)
+                return
+
+            # -----------------------------------
+            # 🔒 TESTER QUALITY GATE (6B)
+            # -----------------------------------
+            tests = final_state_dict.get("tests")
+            if tests and not tests.get("passed"):
+
+                retry_count += 1
+                final_state_dict["retry_count"] = retry_count
+
+                JobLogger.log(
+                    job_id=job_id,
+                    agent="tester",
+                    level="ERROR",
+                    message=f"Tests failed — retry {retry_count}/{max_retries}",
+                )
+
+                # -----------------------------------
+                # 🧠 DEBUGGER PATCH PRIORITIZATION (6C-3)
+                # -----------------------------------
+                debug = final_state_dict.get("debug", {})
+                all_patches = debug.get("patches", [])
+
+                ranked_patches = sorted(
+                    all_patches,
+                    key=lambda p: p.get("confidence", 0),
+                    reverse=True,
+                )
+
+                selected_patches = [
+                    p for p in ranked_patches
+                    if p.get("confidence", 0) >= CONFIDENCE_THRESHOLD
+                ][:MAX_PATCHES_PER_RETRY]
+
+                final_state_dict["patches"] = selected_patches
+                final_state_dict["patches_applied"] = len(selected_patches)
+
+                if not selected_patches or retry_count > max_retries:
+                    JobLogger.log(
+                        job_id=job_id,
+                        agent="debugger",
+                        level="ERROR",
+                        message="No high-confidence patches available — aborting",
+                    )
+
+                    JobManager.update_job_status(job_id, "failed")
+                    write_json(job_id, "final_state.json", final_state_dict)
+                    return
+
+                JobLogger.log(
+                    job_id=job_id,
+                    agent="debugger",
+                    message=f"Applying {len(selected_patches)} high-confidence patch(es)",
+                )
+
+                JobManager.update_job_status(job_id, "needs_retry")
+
+                JobManager.update_progress(
+                    job_id,
+                    progress=60,
+                    current_agent="debugger",
+                    current_step="Applying fixes",
+                )
+
+                # 🔁 Carry patched state forward
+                state = final_state_dict
+                continue
+
+            # -----------------------------------
+            # ✅ SUCCESS
+            # -----------------------------------
+            final_state = JobState(**final_state_dict)
+            final_state.status = "completed"
+
+            JobManager.update_progress(
+                job_id,
+                progress=100,
+                current_agent="system",
+                current_step="Completed",
+            )
+
+            JobLogger.log(
+                job_id=job_id,
+                agent="system",
+                message="Job execution completed successfully",
+            )
+
+            JobManager.update_job(final_state)
             write_json(job_id, "final_state.json", final_state_dict)
-            return  # ⛔ STOP PIPELINE
-
-        # ----------------------------
-        # ✅ Job success
-        # ----------------------------
-        final_state = JobState(**final_state_dict)
-        final_state.status = "completed"
-
-        JobLogger.log(
-            job_id=job_id,
-            agent="system",
-            message="Job execution completed successfully",
-        )
-
-        JobManager.update_progress(
-            job_id,
-            progress=100,
-            current_agent="system",
-            current_step="Completed",
-        )
-
-        JobManager.update_job(final_state)
-        write_json(job_id, "final_state.json", final_state_dict)
+            return
 
     except Exception as exc:
-        # ----------------------------
+        # -----------------------------------
         # Failure handling
-        # ----------------------------
+        # -----------------------------------
         JobLogger.log(
             job_id=job_id,
             agent="system",
