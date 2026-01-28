@@ -22,3 +22,7 @@ class JobState(BaseModel):
 
     # Phase 6A
     review: Optional[Dict[str, Any]] = None
+
+    # Phase 6B-1
+    tests: Optional[Dict[str, Any]] = None
+    

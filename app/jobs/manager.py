@@ -85,6 +85,8 @@ class JobManager:
             # Phase 6A-3
             "review": read_json(job_id, "review.json"),
 
+            # Phase 6B-1
+            "tests": read_json(job_id, "tests.json"),
         }
 
 
@@ -101,6 +103,7 @@ class JobManager:
         write_json(state.job_id, "files.json", state.files)
         write_json(state.job_id, "errors.json", state.errors)
         write_json(state.job_id, "review.json", state.review)
+        write_json(state.job_id, "tests.json", state.tests)
 
         write_json(
             state.job_id,

@@ -50,7 +50,6 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
         # 🔒 REVIEW QUALITY GATE (Phase 6A)
         # ----------------------------
         review = final_state_dict.get("review")
-
         if review and review.get("verdict") != "approve":
             JobLogger.log(
                 job_id=job_id,
@@ -64,7 +63,30 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
             return  # ⛔ STOP PIPELINE
 
         # ----------------------------
-        # Convert dict → JobState
+        # 🔒 TESTER QUALITY GATE (Phase 6B)
+        # ----------------------------
+        tests = final_state_dict.get("tests")
+        if tests and not tests.get("passed"):
+            JobLogger.log(
+                job_id=job_id,
+                agent="tester",
+                level="ERROR",
+                message="Tester quality gate failed",
+            )
+
+            JobManager.update_progress(
+                job_id,
+                progress=100,
+                current_agent="tester",
+                current_step="Quality gate failed",
+            )
+
+            JobManager.update_job_status(job_id, "failed")
+            write_json(job_id, "final_state.json", final_state_dict)
+            return  # ⛔ STOP PIPELINE
+
+        # ----------------------------
+        # ✅ Job success
         # ----------------------------
         final_state = JobState(**final_state_dict)
         final_state.status = "completed"
@@ -82,9 +104,6 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
             current_step="Completed",
         )
 
-        # ----------------------------
-        # Persist results
-        # ----------------------------
         JobManager.update_job(final_state)
         write_json(job_id, "final_state.json", final_state_dict)
 

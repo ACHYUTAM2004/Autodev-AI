@@ -21,6 +21,7 @@ def get_job(job_id: str):
 
     "logs": job["logs"],
     "review": job["review"],
+    "tests": job["tests"],
 
     "plan": job["plan"],
     "tech_decisions": job["tech_decisions"],
