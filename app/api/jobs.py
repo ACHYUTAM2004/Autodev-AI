@@ -20,6 +20,7 @@ def get_job(job_id: str):
     "current_step": job["current_step"],
 
     "logs": job["logs"],
+    "review": job["review"],
 
     "plan": job["plan"],
     "tech_decisions": job["tech_decisions"],

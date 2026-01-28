@@ -11,7 +11,7 @@ from app.jobs.schemas import JobState
 def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
     """
     Background job runner.
-    Executes LangGraph with dict state and persists results safely.
+    Executes LangGraph with dict state and enforces quality gates.
     """
     try:
         # ----------------------------
@@ -33,8 +33,7 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
         )
 
         # ----------------------------
-        # 🔥 CRITICAL FIX:
-        # LangGraph must ALWAYS receive dict state
+        # Ensure dict input for LangGraph
         # ----------------------------
         graph_input: Dict[str, Any] = (
             initial_state.model_dump()
@@ -48,7 +47,24 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
         final_state_dict = run_autodev_graph(graph_input)
 
         # ----------------------------
-        # Convert dict → JobState (for persistence)
+        # 🔒 REVIEW QUALITY GATE (Phase 6A)
+        # ----------------------------
+        review = final_state_dict.get("review")
+
+        if review and review.get("verdict") != "approve":
+            JobLogger.log(
+                job_id=job_id,
+                agent="reviewer",
+                level="ERROR",
+                message="Reviewer rejected the generated code",
+            )
+
+            JobManager.update_job_status(job_id, "blocked_review")
+            write_json(job_id, "final_state.json", final_state_dict)
+            return  # ⛔ STOP PIPELINE
+
+        # ----------------------------
+        # Convert dict → JobState
         # ----------------------------
         final_state = JobState(**final_state_dict)
         final_state.status = "completed"
