@@ -3,7 +3,7 @@ load_dotenv()
 
 from fastapi import FastAPI
 from app.api.api import api_router
-from app.core.logger import setup_logger
+from app.core.global_logger import setup_logger
 
 setup_logger()
 
