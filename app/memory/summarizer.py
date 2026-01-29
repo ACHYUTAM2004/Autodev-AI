@@ -1,19 +1,17 @@
-from typing import List, Dict
+from app.memory.storage import update_memory_usage
 
 
-def summarize_memories(memories: List[Dict], max_items: int = 5) -> str:
-    """
-    Convert structured memory into a short advisory text block.
-    """
+def summarize_memories(memories: list[dict]) -> str:
     if not memories:
-        return "No relevant past experience."
+        return "None"
 
-    recent = memories[-max_items:]
+    for m in memories:
+        update_memory_usage(m["id"])
 
     lines = []
-    for m in recent:
-        payload = m.get("payload", {})
-        summary = ", ".join(f"{k}: {v}" for k, v in payload.items())
-        lines.append(f"- {m['type']}: {summary}")
+    for m in memories:
+        lines.append(
+            f"- ({m['type']}, score={m['effective_score']}) {m['payload']}"
+        )
 
     return "\n".join(lines)
