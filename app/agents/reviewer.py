@@ -11,6 +11,9 @@ from app.agents.utils import extract_text_from_response
 from app.memory.reader import get_memories
 from app.memory.recorder import record_memory
 from app.memory.summarizer import summarize_memories
+from app.governance.token_tracker import TokenTracker
+from app.governance.agent_throttle import AgentThrottle
+from app.governance.budget_guard import BudgetGuard
 
 
 REVIEWER_PROMPT = ChatPromptTemplate.from_template("""
@@ -50,6 +53,8 @@ Code files:
 def reviewer_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     job_id = state["job_id"]
 
+    AgentThrottle.check(job_id, "reviewer", state)
+
     # 🧠 Load reviewer memory
     past_rejections = get_memories("reviewer", type_="review_rejection")
     memory_context = summarize_memories(past_rejections)
@@ -74,11 +79,26 @@ def reviewer_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
     files = state.get("files", {})
 
+    BudgetGuard.check_and_consume(
+        job_id=state["job_id"],
+        state=state,
+        tokens_used=3000,
+        cost_usd=0.002,
+        agent="reviewer",
+    )
+
+
     response = llm.invoke(
         REVIEWER_PROMPT.format_messages(
             files=files,
             memory_context=memory_context,
         )
+    )
+
+    TokenTracker.add_tokens(
+        job_id=state["job_id"],
+        agent="reviewer",
+        tokens=response.usage.total_tokens
     )
 
     review_text = extract_text_from_response(response, expect_json=True)

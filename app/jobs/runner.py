@@ -179,6 +179,44 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
             JobManager.update_job(final_state)
             write_json(job_id, "final_state.json", final_state_dict)
             return
+    
+    except RuntimeError as exc:
+        """
+        🚫 Governance / Budget violation
+        Triggered by BudgetGuard or other hard safety checks.
+        """
+
+        JobLogger.log(
+            job_id=job_id,
+            agent="governance",
+            level="ERROR",
+            message=str(exc),
+        )
+
+        # Persist structured error
+        write_json(
+            job_id,
+            "error.json",
+            {
+                "error": str(exc),
+                "type": "budget_violation",
+                "stage": "governance",
+            },
+        )
+
+        # Update job progress for UI / WS clients
+        JobManager.update_progress(
+            job_id,
+            progress=100,
+            current_agent="governance",
+            current_step="Budget exceeded — job terminated",
+        )
+
+        # Final job status
+        JobManager.update_job_status(job_id, "budget_exceeded")
+
+        return  
+
 
     except Exception as exc:
         # -----------------------------------

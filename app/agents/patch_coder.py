@@ -4,6 +4,7 @@ from typing import Dict, Any
 import json
 
 from app.agents.utils import extract_text_from_response
+from app.governance.budget_guard import BudgetGuard
 
 
 PATCH_CODER_PROMPT = ChatPromptTemplate.from_template("""
@@ -41,6 +42,16 @@ def patch_coder_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         model="gemini-flash-latest",
         temperature=0
     )
+
+
+    BudgetGuard.check_and_consume(
+        job_id=state["job_id"],
+        state=state,
+        tokens_used=3500,
+        cost_usd=0.0025,
+        agent="patch_coder",
+    )
+
 
     response = llm.invoke(
         PATCH_CODER_PROMPT.format_messages(

@@ -39,6 +39,14 @@ class JobState(BaseModel):
     # Phase 6C-3
     patches: List[Dict[str,Any]] = []
 
+    # Phase 6E-3
+    token_usage: int = 0
+    cost_usd: float = 0.0
+
+    max_tokens: int = 50_000        # configurable
+    max_cost_usd: float = 1.00      # configurable
+
+
 
 
     
