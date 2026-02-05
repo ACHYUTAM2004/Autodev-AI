@@ -1,4 +1,4 @@
-from app.memory.storage import update_memory_usage
+from app.memory.storage_memory import update_memory_usage
 
 
 def summarize_memories(memories: list[dict]) -> str:

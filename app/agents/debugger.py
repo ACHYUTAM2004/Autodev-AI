@@ -3,7 +3,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Dict, Any
 import json
 
-from app.agents.utils import extract_text_from_response
+from app.agents.utils import extract_text_from_response, extract_token_usage, normalize_llm_output
 
 from app.memory.reader import get_memories
 from app.memory.recorder import record_memory
@@ -11,7 +11,6 @@ from app.memory.summarizer import summarize_memories
 from app.governance.token_tracker import TokenTracker
 from app.governance.agent_throttle import AgentThrottle
 from app.governance.budget_guard import BudgetGuard
-
 
 DEBUGGER_PROMPT = ChatPromptTemplate.from_template("""
 You are a senior software debugger.
@@ -39,6 +38,9 @@ Generated files:
 
 
 def debugger_agent(state: Dict[str, Any]) -> Dict[str, Any]:
+    if not isinstance(state, dict):
+        raise TypeError(f"Agent received non-dict state: {type(state)}")
+    
     job_id = state["job_id"]
 
     AgentThrottle.check(job_id, "debugger", state)
@@ -69,7 +71,7 @@ def debugger_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     response = llm.invoke(
         DEBUGGER_PROMPT.format_messages(
             test_failures=tests.get("failed_tests", []),
-            files=state.get("files", {}),
+            files=state["files"],
             memory_context=memory_context,
         )
     )
@@ -77,22 +79,37 @@ def debugger_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     TokenTracker.add_tokens(
         job_id=state["job_id"],
         agent="debugger",
-        tokens=response.usage.total_tokens
+        tokens=extract_token_usage(response)
     )
 
 
     content = extract_text_from_response(response)
 
     try:
-        debug_report = json.loads(content)
+        parsed = json.loads(content)
     except Exception:
-        debug_report = {
-            "root_cause": "Unknown",
-            "analysis": content,
-            "fix_plan": [],
-            "confidence": 0.0,
-        }
+        parsed = None
 
+    # 🔒 Normalize debug_report to dict
+    if isinstance(parsed, list):
+        # take the most confident item if possible
+        if parsed and isinstance(parsed[0], dict):
+            debug_report = parsed[0]
+        else:
+            debug_report = {}
+    elif isinstance(parsed, dict):
+        debug_report = parsed
+    else:
+        debug_report = {}
+
+    # Fill safe defaults
+    debug_report.setdefault("root_cause", "Unknown")
+    debug_report.setdefault("analysis", content)
+    debug_report.setdefault("fix_plan", [])
+    debug_report.setdefault("confidence", 0.0)
+
+
+    # Carry forward execution hint (NOT persisted)
     state["debug"] = debug_report
 
     # 🧠 Persist successful patch memory

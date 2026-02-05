@@ -1,5 +1,5 @@
 from typing import List, Dict
-from app.memory.storage import load_memories
+from app.memory.storage_memory import load_memory
 from app.memory.scorer import compute_effective_score, MIN_SCORE_THRESHOLD
 
 
@@ -9,7 +9,7 @@ def get_memories(
     limit: int = 5,
 ) -> List[Dict]:
 
-    memories = load_memories(agent, type_)
+    memories = load_memory(agent, type_)
 
     scored = []
     for m in memories:

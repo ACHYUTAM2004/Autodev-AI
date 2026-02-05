@@ -2,10 +2,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from typing import Dict, Any
 
-from app.agents.utils import extract_text_from_response
+from app.agents.utils import extract_text_from_response, extract_token_usage, normalize_llm_output
 from app.governance.token_tracker import TokenTracker
 from app.governance.agent_throttle import AgentThrottle
 from app.governance.budget_guard import BudgetGuard
+from app.jobs.artifacts import save_plan
 
 PLANNER_PROMPT = ChatPromptTemplate.from_template("""
 You are a senior software engineer acting as a planner.
@@ -21,6 +22,10 @@ Return ONLY a numbered list of steps.
 
 
 def planner_agent(state: Dict[str, Any]) -> Dict[str, Any]:
+
+    if not isinstance(state, dict):
+        raise TypeError(f"Agent received non-dict state: {type(state)}")
+
     job_id = state["job_id"]
 
     AgentThrottle.check(job_id, "planner", state)
@@ -33,7 +38,6 @@ def planner_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
     description = state.get("user_input", {}).get("description", "")
 
-    from app.governance.budget_guard import BudgetGuard
 
     BudgetGuard.check_and_consume(
         job_id=state["job_id"],
@@ -50,7 +54,7 @@ def planner_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     TokenTracker.add_tokens(
         job_id=state["job_id"],
         agent="planner",
-        tokens=response.usage.total_tokens
+        tokens=extract_token_usage(response)
     )
 
     content = extract_text_from_response(response)
@@ -65,5 +69,10 @@ def planner_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         if cleaned:
             plan.append(cleaned)
 
+    # 🔒 Persist immediately (authoritative)
+    save_plan(job_id, plan)
+
+    # Carry forward only what next agents need
     state["plan"] = plan
     return state
+

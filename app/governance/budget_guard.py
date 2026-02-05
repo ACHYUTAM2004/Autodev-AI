@@ -1,5 +1,6 @@
 from app.jobs.logger import JobLogger
 from app.jobs.manager import JobManager
+from app.jobs.schemas import JobState
 
 
 class BudgetGuard:
@@ -7,12 +8,15 @@ class BudgetGuard:
     def check_and_consume(
         *,
         job_id: str,
-        state: dict,
+        state,
         tokens_used: int,
         cost_usd: float,
         agent: str,
     ) -> None:
 
+        if not isinstance(state, dict):
+            state = state.model_dump()
+            
         state["token_usage"] = state.get("token_usage", 0) + tokens_used
         state["cost_usd"] = state.get("cost_usd", 0.0) + cost_usd
 

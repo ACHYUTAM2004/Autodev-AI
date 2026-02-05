@@ -1,7 +1,7 @@
 from datetime import datetime
 import uuid
 
-from app.memory.storage import append_memory
+from app.memory.storage_memory import append_memory
 
 
 def record_memory(agent: str, type_: str, payload: dict, score: float = 1.0):

@@ -6,7 +6,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from app.jobs.logger import JobLogger
 from app.jobs.manager import JobManager
-from app.agents.utils import extract_text_from_response
+from app.agents.utils import extract_text_from_response, extract_token_usage, normalize_llm_output
 
 from app.memory.reader import get_memories
 from app.memory.recorder import record_memory
@@ -14,7 +14,6 @@ from app.memory.summarizer import summarize_memories
 from app.governance.token_tracker import TokenTracker
 from app.governance.agent_throttle import AgentThrottle
 from app.governance.budget_guard import BudgetGuard
-
 
 REVIEWER_PROMPT = ChatPromptTemplate.from_template("""
 You are a senior staff engineer reviewing generated backend code.
@@ -31,27 +30,32 @@ Evaluate the following:
 
 You MUST return JSON ONLY in this exact format:
 
-{
+{{
   "verdict": "approve | reject",
   "severity": "none | minor | major | critical",
   "issues": [
-    {
+    {{
       "file": "filename",
       "type": "architecture | security | correctness | style | performance",
       "message": "what is wrong",
       "suggestion": "optional fix suggestion"
-    }
+    }}
   ],
   "summary": "overall assessment"
-}
+}}
 
 Code files:
 {files}
 """)
 
 
-def reviewer_agent(state: Dict[str, Any]) -> Dict[str, Any]:
+def reviewer_agent(state: Dict[str,Any]) -> Dict[str,Any]:
+
+    if not isinstance(state, dict):
+        raise TypeError(f"Agent received non-dict state: {type(state)}")
+    
     job_id = state["job_id"]
+    review=None
 
     AgentThrottle.check(job_id, "reviewer", state)
 
@@ -77,7 +81,7 @@ def reviewer_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         temperature=0,
     )
 
-    files = state.get("files", {})
+    files = state["files"]
 
     BudgetGuard.check_and_consume(
         job_id=state["job_id"],
@@ -98,32 +102,48 @@ def reviewer_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     TokenTracker.add_tokens(
         job_id=state["job_id"],
         agent="reviewer",
-        tokens=response.usage.total_tokens
+        tokens=extract_token_usage(response)
     )
 
-    review_text = extract_text_from_response(response, expect_json=True)
+    review_text = extract_text_from_response(response)
 
     try:
-        review = json.loads(review_text)
+        parsed = json.loads(review_text)
     except Exception:
-        review = {
-            "verdict": "reject",
-            "severity": "critical",
-            "issues": [
-                {
-                    "file": "unknown",
-                    "type": "correctness",
-                    "message": "Reviewer returned invalid JSON",
-                    "suggestion": "Fix reviewer output format",
-                }
-            ],
-            "summary": "Reviewer failed to produce valid output",
-        }
+        parsed = None
 
-    state["review"] = review
+    # 🔒 Normalize shape → dict
+    if isinstance(parsed, list):
+        review = parsed[0] if parsed and isinstance(parsed[0], dict) else {}
+    elif isinstance(parsed, dict):
+        review = parsed
+    else:
+        review = {}
+
+    # 🔒 Enforce reviewer contract
+    review.setdefault("verdict", "reject")
+    review.setdefault("severity", "critical")
+    review.setdefault("issues", [])
+    review.setdefault("summary", "Reviewer returned malformed output")
+
+    # Ensure issues is a list
+    if not isinstance(review["issues"], list):
+        review["issues"] = []
+
+
+    # Carry forward execution-only result
+    state["review"] = {
+    "verdict": str(review["verdict"]),
+    "severity": str(review["severity"]),
+    "issues": list(review["issues"]),
+    "summary": str(review["summary"]),
+    }
+
+    assert isinstance(state["review"], dict) and "verdict" in state["review"]
+
 
     # 🧠 Persist rejection memory
-    if review["verdict"] == "reject":
+    if review.get("verdict") == "reject":
         record_memory(
             agent="reviewer",
             type_="review_rejection",
@@ -136,8 +156,9 @@ def reviewer_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     JobLogger.log(
         job_id=job_id,
         agent="reviewer",
-        level="ERROR" if review["verdict"] == "reject" else "INFO",
-        message=f"Review verdict: {review['verdict']} – {review['summary']}",
+        level="ERROR" if review.get("verdict") == "reject" else "INFO",
+        message=f"Review verdict: {review.get('verdict')} – {review.get('summary')}",
     )
 
     return state
+

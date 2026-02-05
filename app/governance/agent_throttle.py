@@ -3,7 +3,7 @@ from typing import Dict, Any
 
 from app.jobs.logger import JobLogger
 from app.jobs.manager import JobManager
-
+from app.jobs.schemas import JobState
 
 class AgentThrottle:
     AGENT_LIMITS = {
@@ -16,8 +16,10 @@ class AgentThrottle:
     }
 
     @staticmethod
-    def check(job_id: str, agent: str, state: Dict[str, Any]) -> None:
+    def check(job_id: str, agent: str, state: JobState) -> None:
         now = datetime.now(timezone.utc)
+        if not isinstance(state, dict):
+            state = state.model_dump()
 
         stats = state.setdefault("agent_stats", {})
         agent_stat = stats.setdefault(agent, {"runs": 0, "last_run": None})

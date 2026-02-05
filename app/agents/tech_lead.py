@@ -4,10 +4,12 @@ from typing import Dict, Any
 import json
 import logging
 
-from app.agents.utils import extract_text_from_response
+from app.agents.utils import extract_text_from_response, extract_token_usage, normalize_llm_output
 from app.governance.token_tracker import TokenTracker
 from app.governance.agent_throttle import AgentThrottle
 from app.governance.budget_guard import BudgetGuard
+from app.jobs.artifacts import save_tech_decisions
+
 
 logger = logging.getLogger("autodev")
 
@@ -34,6 +36,10 @@ The JSON must be directly parsable by json.loads().
 
 
 def tech_lead_agent(state: Dict[str, Any]) -> Dict[str, Any]:
+
+    if not isinstance(state, dict):
+        raise TypeError(f"Agent received non-dict state: {type(state)}")
+
     job_id = state["job_id"]
 
     AgentThrottle.check(job_id, "tech_lead", state)
@@ -64,23 +70,38 @@ def tech_lead_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     TokenTracker.add_tokens(
         job_id=state["job_id"],
         agent="tech_lead",
-        tokens=response.usage.total_tokens
+        tokens=extract_token_usage(response)
     )
 
     raw_output = extract_text_from_response(response)
 
     try:
         parsed = json.loads(raw_output)
-        state["tech_decisions"] = parsed
-        state["status"] = "completed"   # ✅ IMPORTANT
-    except json.JSONDecodeError:
-        logger.error("❌ Tech Lead JSON parsing failed")
-        logger.error(raw_output)
+    except Exception:
+        parsed = None
 
-        state["tech_decisions"] = {
-            "error": "Failed to parse tech lead output",
-            "raw_output": raw_output
-        }
-        state["status"] = "failed"
+    # 🔒 Normalize to ONE decision object
+    if isinstance(parsed, list):
+        # take the first valid dict
+        tech_decisions = (
+            parsed[0]
+            if parsed and isinstance(parsed[0], dict)
+            else {}
+        )
+    elif isinstance(parsed, dict):
+        tech_decisions = parsed
+    else:
+        tech_decisions = {}
+
+    # Enforce minimal contract (VERY important)
+    tech_decisions.setdefault("architecture", {})
+    tech_decisions.setdefault("tech_stack", {})
+    tech_decisions.setdefault("decisions", {})
+    tech_decisions.setdefault("notes", "")
+
+    # Persist + carry forward
+    save_tech_decisions(job_id, tech_decisions)
+    state["tech_decisions"] = tech_decisions
+
 
     return state

@@ -7,7 +7,6 @@ from app.jobs.logger import JobLogger
 from app.jobs.storage import write_json
 from app.jobs.schemas import JobState
 
-
 # ----------------------------
 # Phase 6C-3 configuration
 # ----------------------------
@@ -42,11 +41,7 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
         # ----------------------------
         # Ensure dict input
         # ----------------------------
-        state: Dict[str, Any] = (
-            initial_state.model_dump()
-            if isinstance(initial_state, JobState)
-            else initial_state
-        )
+        state: Dict[str, Any] = dict(initial_state)
 
         retry_count = state.get("retry_count", 0)
         max_retries = state.get("max_retries", 2)
@@ -72,23 +67,46 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
             # -----------------------------------
             # Run AutoDev graph
             # -----------------------------------
-            final_state_dict = run_autodev_graph(state)
+            graph_input = (
+                state.model_dump()
+                if isinstance(state, JobState)
+                else state
+            )
+
+            final_state_dict = run_autodev_graph(graph_input)
+
 
             # -----------------------------------
             # 🔒 REVIEW QUALITY GATE (6A)
             # -----------------------------------
             review = final_state_dict.get("review")
             if review and review.get("verdict") != "approve":
+
                 JobLogger.log(
                     job_id=job_id,
                     agent="reviewer",
                     level="ERROR",
-                    message="Reviewer rejected the generated code",
+                    message="Reviewer rejected code — routing to debugger",
                 )
 
-                JobManager.update_job_status(job_id, "blocked_review")
-                write_json(job_id, "final_state.json", final_state_dict)
-                return
+                retry_count += 1
+                final_state_dict["retry_count"] = retry_count
+
+                JobManager.update_job_status(job_id, "needs_retry")
+
+                JobManager.update_progress(
+                    job_id,
+                    progress=55,
+                    current_agent="reviewer",
+                    current_step="Reviewer rejected — preparing fixes",
+                )
+
+                # 🔁 Carry FULL state forward
+                state = final_state_dict
+
+                # 🔁 Retry instead of exit
+                continue
+
 
             # -----------------------------------
             # 🔒 TESTER QUALITY GATE (6B)
@@ -154,14 +172,19 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
                 )
 
                 # 🔁 Carry patched state forward
-                state = final_state_dict
+                state = {
+                    "job_id": job_id,
+                    "user_input": state.get("user_input"),
+                    "retry_count": retry_count,
+                    "patches": final_state_dict.get("patches", []),
+                }
+
                 continue
 
             # -----------------------------------
             # ✅ SUCCESS
             # -----------------------------------
-            final_state = JobState(**final_state_dict)
-            final_state.status = "completed"
+            JobManager.update_job_status(job_id, "completed")
 
             JobManager.update_progress(
                 job_id,
@@ -176,7 +199,6 @@ def run_job(job_id: str, initial_state: Dict[str, Any]) -> None:
                 message="Job execution completed successfully",
             )
 
-            JobManager.update_job(final_state)
             write_json(job_id, "final_state.json", final_state_dict)
             return
     
