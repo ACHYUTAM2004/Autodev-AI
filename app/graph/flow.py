@@ -10,6 +10,8 @@ from langgraph.graph import StateGraph,END
 from app.jobs.schemas import JobState
 from typing import Dict, Any
 
+from functools import lru_cache
+
 
 def tester_gate(state: Dict[str, Any]) -> str:
     tests = state.get("tests") or {}
@@ -28,7 +30,8 @@ def normalize_state(state: Any) -> Dict[str, Any]:
     raise TypeError(f"Invalid state type: {type(state)}")
 
 
-def run_autodev_graph(state: Dict[str, Any]) -> Dict[str, Any]:
+@lru_cache(maxsize=1)
+def _build_graph():
     graph = StateGraph(dict)
 
     graph.add_node("normalize", normalize_state)
@@ -45,27 +48,32 @@ def run_autodev_graph(state: Dict[str, Any]) -> Dict[str, Any]:
     graph.add_edge("planner", "tech_lead")
     graph.add_edge("tech_lead", "coder")
     graph.add_edge("coder", "reviewer")
+
     graph.add_conditional_edges(
-    "reviewer",
-    reviewer_gate,
-    {
-        "approve": "tester",
-        "reject": "debugger",
-    },
+        "reviewer",
+        reviewer_gate,
+        {
+            "approve": "tester",
+            "reject": "debugger",
+        },
     )
+
     graph.add_edge("tester", "debugger")
+
+    graph.add_conditional_edges(
+        "tester",
+        tester_gate,
+        {
+            "pass": END,
+            "fail": "debugger",
+        },
+    )
+
     graph.add_edge("debugger", "patch_coder")
 
-    # 🔥 HARD QUALITY GATE
-    graph.add_conditional_edges(
-    "tester",
-    tester_gate,
-    {
-        "pass": END,
-        "fail": "debugger",
-    },
-    )
+    return graph.compile()
 
 
-    runnable = graph.compile()
+def run_autodev_graph(state: Dict[str, Any]) -> Dict[str, Any]:
+    runnable = _build_graph()
     return runnable.invoke(state)

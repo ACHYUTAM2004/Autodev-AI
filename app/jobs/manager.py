@@ -14,6 +14,9 @@ class JobManager:
 
     @staticmethod
     def create_job(user_input: Dict[str, Any]) -> JobState:
+        if isinstance(user_input, dict) and user_input.get("job_id"):
+            raise RuntimeError("create_job() called with existing job_id")
+        
         job_id = str(uuid.uuid4())
 
         state = JobState(

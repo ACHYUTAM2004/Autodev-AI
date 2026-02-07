@@ -5,9 +5,7 @@ import json
 import logging
 
 from app.agents.utils import extract_text_from_response,extract_token_usage, normalize_llm_output
-from app.governance.token_tracker import TokenTracker
-from app.governance.agent_throttle import AgentThrottle
-from app.governance.budget_guard import BudgetGuard
+
 from app.jobs.artifacts import save_files
 
 
@@ -49,7 +47,6 @@ def coder_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
     job_id = state["job_id"]
 
-    AgentThrottle.check(job_id, "coder", state)
 
     llm = ChatGoogleGenerativeAI(
         model="gemini-flash-latest",
@@ -60,13 +57,6 @@ def coder_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     plan_text = "\n".join(state.get("plan", []))
     tech_decisions = json.dumps(state.get("tech_decisions", {}), indent=2)
 
-    BudgetGuard.check_and_consume(
-        job_id=state["job_id"],
-        state=state,
-        tokens_used=6000,
-        cost_usd=0.004,
-        agent="coder",
-    )
 
     response = llm.invoke(
         CODER_PROMPT.format_messages(
@@ -75,11 +65,6 @@ def coder_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         )
     )
 
-    TokenTracker.add_tokens(
-        job_id=state["job_id"],
-        agent="coder",
-        tokens=extract_token_usage(response)
-    )
 
     raw_output = extract_text_from_response(response)
 

@@ -10,9 +10,7 @@ from app.agents.utils import extract_text_from_response, extract_token_usage
 from app.memory.reader import get_memories
 from app.memory.recorder import record_memory
 from app.memory.summarizer import summarize_memories
-from app.governance.token_tracker import TokenTracker
-from app.governance.agent_throttle import AgentThrottle
-from app.governance.budget_guard import BudgetGuard
+
 
 TESTER_PROMPT = ChatPromptTemplate.from_template("""
 You are a senior QA engineer.
@@ -47,7 +45,6 @@ def tester_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     
     job_id = state["job_id"]
 
-    AgentThrottle.check(job_id, "tester", state)
 
     # 🧠 Load tester memory
     past_failures = get_memories("tester", type_="test_failure")
@@ -71,14 +68,6 @@ def tester_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         temperature=0,
     )
 
-    BudgetGuard.check_and_consume(
-        job_id=state["job_id"],
-        state=state,
-        tokens_used=2500,
-        cost_usd=0.0018,
-        agent="tester",
-    )
-
 
     response = llm.invoke(
         TESTER_PROMPT.format_messages(
@@ -87,11 +76,6 @@ def tester_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         )
     )
 
-    TokenTracker.add_tokens(
-        job_id=state["job_id"],
-        agent="tester",
-        tokens=extract_token_usage(response)
-    )
 
     test_text = extract_text_from_response(response)
 

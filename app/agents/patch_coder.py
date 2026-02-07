@@ -4,9 +4,6 @@ from typing import Dict, Any
 import json
 
 from app.agents.utils import extract_text_from_response, extract_token_usage
-from app.governance.token_tracker import TokenTracker
-from app.governance.agent_throttle import AgentThrottle
-from app.governance.budget_guard import BudgetGuard
 
 PATCH_CODER_PROMPT = ChatPromptTemplate.from_template("""
 You are a senior software engineer applying targeted fixes.
@@ -41,8 +38,6 @@ def patch_coder_agent(state: Dict[str, Any]) -> Dict[str, Any]:
 
     job_id = state["job_id"]
 
-    AgentThrottle.check(job_id, "patch_coder", state)
-
     debug = state.get("debug")
     if not debug or not debug.get("fix_plan"):
         return state  # nothing to patch
@@ -52,13 +47,6 @@ def patch_coder_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         temperature=0
     )
 
-    BudgetGuard.check_and_consume(
-        job_id=job_id,
-        state=state,
-        tokens_used=3500,
-        cost_usd=0.0025,
-        agent="patch_coder",
-    )
 
     response = llm.invoke(
         PATCH_CODER_PROMPT.format_messages(
@@ -67,11 +55,7 @@ def patch_coder_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         )
     )
 
-    TokenTracker.add_tokens(
-        job_id=job_id,
-        agent="patch_coder",
-        tokens=extract_token_usage(response),
-    )
+
 
     content = extract_text_from_response(response)
 

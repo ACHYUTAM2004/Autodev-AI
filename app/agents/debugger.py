@@ -8,9 +8,6 @@ from app.agents.utils import extract_text_from_response, extract_token_usage, no
 from app.memory.reader import get_memories
 from app.memory.recorder import record_memory
 from app.memory.summarizer import summarize_memories
-from app.governance.token_tracker import TokenTracker
-from app.governance.agent_throttle import AgentThrottle
-from app.governance.budget_guard import BudgetGuard
 
 DEBUGGER_PROMPT = ChatPromptTemplate.from_template("""
 You are a senior software debugger.
@@ -43,7 +40,6 @@ def debugger_agent(state: Dict[str, Any]) -> Dict[str, Any]:
     
     job_id = state["job_id"]
 
-    AgentThrottle.check(job_id, "debugger", state)
 
     tests = state.get("tests")
     if not tests or tests.get("passed", True):
@@ -58,15 +54,6 @@ def debugger_agent(state: Dict[str, Any]) -> Dict[str, Any]:
         temperature=0,
     )
 
-
-    BudgetGuard.check_and_consume(
-        job_id=state["job_id"],
-        state=state,
-        tokens_used=4000,
-        cost_usd=0.003,
-        agent="debugger",
-    )
-
     
     response = llm.invoke(
         DEBUGGER_PROMPT.format_messages(
@@ -74,12 +61,6 @@ def debugger_agent(state: Dict[str, Any]) -> Dict[str, Any]:
             files=state["files"],
             memory_context=memory_context,
         )
-    )
-
-    TokenTracker.add_tokens(
-        job_id=state["job_id"],
-        agent="debugger",
-        tokens=extract_token_usage(response)
     )
 
 
