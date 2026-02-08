@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from app.core.llm import get_llm
 from app.graph.state import AgentState
+from app.core.logger import logger
 
 # Define the output parser to ensure we get structured file data
 parser = JsonOutputParser()
@@ -57,7 +58,7 @@ def coder_agent(state: AgentState):
     Reads: Plan, Tech Decisions
     Writes: Files (to state)
     """
-    print(f"--- CODER AGENT: Writing code for {state['user_input'].get('project_name')} ---")
+    logger.info(f"--- CODER AGENT: Writing code for {state['user_input'].get('project_name')} ---")
     
     # 1. Retrieve Context
     user_req = state["user_input"]
@@ -93,10 +94,10 @@ def coder_agent(state: AgentState):
                 if path and content:
                     generated_files[path] = content
         
-        print(f"--> Generated {len(generated_files)} files.")
+        logger.info(f"Coder generated {len(generated_files)} files.")
         
         return {"files": generated_files}
         
     except Exception as e:
-        print(f"Error in Coder Agent: {e}")
+        logger.error(f"Error in Coder Agent: {e}")
         return {"errors": [f"Coder Agent failed: {str(e)}"]}

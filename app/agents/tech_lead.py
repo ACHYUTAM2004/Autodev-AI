@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from app.core.llm import get_llm
 from app.graph.state import AgentState
+from app.core.logger import logger
 
 # Define the output parser
 parser = JsonOutputParser()
@@ -46,7 +47,7 @@ def tech_lead_agent(state: AgentState):
     Analyzes the user request and plan to make technical decisions.
     Updates 'tech_decisions' in the state.
     """
-    print(f"--- TECH LEAD: Architecting {state['user_input'].get('project_name')} ---")
+    logger.info(f"--- TECH LEAD: Architecting {state['user_input'].get('project_name')} ---")
     
     user_req = state["user_input"]
     plan = state.get("plan", [])
@@ -64,12 +65,12 @@ def tech_lead_agent(state: AgentState):
         })
         
         # Log the decisions for debugging
-        print(f"--> Selected Stack: {decisions.get('language')} / {decisions.get('framework')}")
+        logger.info(f"Selected Stack: {decisions.get('language')} / {decisions.get('framework')}")
         
         return {"tech_decisions": decisions}
         
     except Exception as e:
-        print(f"Error in Tech Lead Agent: {e}")
+        logger.error(f"Error in Tech Lead Agent: {e}")
         # Fallback default
         return {
             "tech_decisions": {

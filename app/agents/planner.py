@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from app.core.llm import get_llm
 from app.graph.state import AgentState
+from app.core.logger import logger
 
 # Define the output parser to ensure we get a clean JSON list
 parser = JsonOutputParser()
@@ -56,7 +57,7 @@ def planner_agent(state: AgentState):
     Orchestrates the planning process.
     Reads user_input -> Generates Plan -> Updates State
     """
-    print(f"--- PLANNER AGENT: Generating plan for {state['user_input']['project_name']} ---")
+    logger.info(f"--- PLANNER AGENT: Planning steps for {state['user_input'].get('project_name')} ---")
     
     # 1. Retrieve Input
     user_req = state["user_input"]
@@ -75,10 +76,10 @@ def planner_agent(state: AgentState):
         # 3. Update State
         # The design doc (Page 2) expects a list of steps
         plan = response.get("plan", [])
-        
+        logger.info(f"Planner generated {len(plan)} steps.") # Log success
         return {"plan": plan}
         
     except Exception as e:
-        print(f"Error in Planner Agent: {e}")
+        logger.error(f"Error in Planner Agent: {e}") # Log error to file
         # Fallback plan if LLM fails (resilience)
         return {"plan": ["Set up project structure", "Write code", "Test"]}
