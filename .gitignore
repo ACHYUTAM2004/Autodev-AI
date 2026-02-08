@@ -19,6 +19,4 @@ __pycache__/
 # Docs
 *.pdf
 
-data/
-
-memory_store/
+generated_projects/
