@@ -1,46 +1,41 @@
+import re
+from typing import Union, List
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser
 from app.core.llm import get_llm
 from app.graph.state import AgentState
 from app.core.logger import logger
 
-# Define the output parser to ensure we get structured file data
-parser = JsonOutputParser()
-
 # ---------------------------------------------------------------------
-# CODER PROMPT (Polyglot)
+# ROBUST PROMPT (XML-STYLE)
 # ---------------------------------------------------------------------
 coder_prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are the Coder Agent for AutoDev AI.
-    Your job is to generate production-ready code files based on a Technical Design.
-
-    **Input Context:**
-    - **Language/Framework:** {tech_stack} (Strict adherence required)
-    - **Architecture:** {architecture}
-    - **Plan:** Follow these steps strictly: {plan}
-
-    **Guidelines:**
-    1. **Complete Implementation:** Generate fully functional code, not pseudocode.
-    2. **Project Structure:** Return the file paths exactly as they should appear in the project root (e.g., "app/main.py", "src/User.java").
-    3. **Dependencies:** Ensure you include a dependency management file (e.g., `requirements.txt` for Python, `package.json` for Node, `go.mod` for Go).
-    4. **Standard Practices:** Use best practices for the chosen stack (e.g., modular routing for Express, Pydantic models for FastAPI).
-
-    **Output Format:**
-    Return a STRICT JSON object containing a list of files.
+    ("system", """You are the Lead Developer for AutoDev AI.
     
-    Example Output:
-    {{
-        "files": [
-            {{
-                "path": "requirements.txt",
-                "content": "fastapi\\nuvicorn\\n"
-            }},
-            {{
-                "path": "main.py",
-                "content": "from fastapi import FastAPI\\napp = FastAPI()\\n..."
-            }}
-        ]
-    }}
+    **Goal:** Write production-ready code based on the Technical Design.
+    
+    **Input Context:**
+    - **Stack:** {tech_stack}
+    - **Architecture:** {architecture}
+    - **Plan:** {plan}
+    
+    **Output Format:**
+    Do NOT return JSON. Return the file content wrapped in XML-style tags like this:
+    
+    <file path="src/main.py">
+    print("Hello World")
+    </file>
+    
+    <file path="requirements.txt">
+    fastapi
+    uvicorn
+    </file>
+    
+    **Rules:**
+    1. **Functionality:** Generate fully functional code, not pseudocode.
+    2. **Structure:** Use standard folder structures (e.g., `app/`, `src/`).
+    3. **Dependencies:** ALWAYS include the dependency file (e.g., `requirements.txt`, `package.json`).
+    4. **Tests:** If creating a test folder (e.g., `tests/`), YOU MUST include an empty `<file path="tests/__init__.py"></file>`.
+    5. **Formatting:** Write code directly. **Use actual line breaks**, do NOT use literal '\\n'.
     """),
     ("user", """
     Project Name: {project_name}
@@ -50,29 +45,61 @@ coder_prompt = ChatPromptTemplate.from_messages([
 ])
 
 # ---------------------------------------------------------------------
+# PARSING & SANITIZATION HELPER
+# ---------------------------------------------------------------------
+def sanitize_content(content: str) -> str:
+    """Cleans up common LLM formatting errors."""
+    content = content.strip()
+    
+    # 1. Remove wrapping quotes if the LLM added them (e.g., "import os...")
+    if content.startswith('"') and content.endswith('"'):
+        content = content[1:-1]
+    elif content.startswith("'") and content.endswith("'"):
+        content = content[1:-1]
+        
+    # 2. Fix escaped newlines (The "requirements.txt" fix)
+    # If the content contains literal "\n" but NO actual newlines, it's a single-line mess.
+    if "\\n" in content and "\n" not in content:
+        logger.warning("Detected escaped newlines in single-line output. fixing...")
+        content = content.replace("\\n", "\n")
+        
+    return content
+
+def parse_xml_output(text: Union[str, List]) -> dict:
+    """Extracts file paths and content using Regex."""
+    # Handle list input (Gemini quirk)
+    if isinstance(text, list):
+        text = "".join(str(item) for item in text)
+    if not isinstance(text, str):
+        text = str(text)
+
+    # Regex to find <file path="...">CONTENT</file>
+    pattern = r'<file\s+path="([^"]+)">\s*(.*?)\s*</file>'
+    matches = re.findall(pattern, text, re.DOTALL)
+    
+    files = {}
+    for path, content in matches:
+        files[path] = sanitize_content(content)
+        
+    return files
+
+# ---------------------------------------------------------------------
 # AGENT FUNCTION
 # ---------------------------------------------------------------------
 def coder_agent(state: AgentState):
-    """
-    Generates the actual code files.
-    Reads: Plan, Tech Decisions
-    Writes: Files (to state)
-    """
     logger.info(f"--- CODER AGENT: Writing code for {state['user_input'].get('project_name')} ---")
     
-    # 1. Retrieve Context
     user_req = state["user_input"]
     plan = state.get("plan", [])
     tech_decisions = state.get("tech_decisions", {})
     
-    # Format tech stack string for the prompt
     stack_str = f"{tech_decisions.get('language', 'Python')} using {tech_decisions.get('framework', 'FastAPI')}"
     arch_str = f"Database: {tech_decisions.get('database', 'SQLite')}, Auth: {tech_decisions.get('auth', 'None')}"
     
-    # 2. Invoke LLM
-    # We use temperature=0.0 for deterministic code generation (as per design goal) 
+    plan_str = "\n".join(plan) if isinstance(plan, list) else str(plan)
+    
     llm = get_llm(temperature=0.0)
-    chain = coder_prompt | llm | parser
+    chain = coder_prompt | llm 
     
     try:
         response = chain.invoke({
@@ -81,22 +108,19 @@ def coder_agent(state: AgentState):
             "constraints": user_req.get("constraints", {}),
             "tech_stack": stack_str,
             "architecture": arch_str,
-            "plan": "\n".join(plan)
+            "plan": plan_str
         })
+
+        files_dict = parse_xml_output(response.content)
         
-        # 3. Update State
-        # Convert list of file dicts to the state's dictionary format {path: content}
-        generated_files = {}
-        if "files" in response and isinstance(response["files"], list):
-            for file_obj in response["files"]:
-                path = file_obj.get("path")
-                content = file_obj.get("content")
-                if path and content:
-                    generated_files[path] = content
+        if not files_dict:
+            logger.warning("Coder Agent produced no files. Raw output snippet:")
+            raw = response.content
+            if isinstance(raw, list): raw = "".join(str(x) for x in raw)
+            logger.warning(raw[:500])
         
-        logger.info(f"Coder generated {len(generated_files)} files.")
-        
-        return {"files": generated_files}
+        logger.info(f"Coder generated {len(files_dict)} files.")
+        return {"files": files_dict}
         
     except Exception as e:
         logger.error(f"Error in Coder Agent: {e}")

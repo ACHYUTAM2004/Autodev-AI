@@ -3,34 +3,62 @@ from app.graph.state import AgentState
 from app.agents.planner import planner_agent
 from app.agents.tech_lead import tech_lead_agent
 from app.agents.coder import coder_agent
+from app.agents.reviewer import reviewer_agent  # <--- IMPORT
+from app.agents.tester import tester_agent
+from app.agents.debugger import debugger_agent 
 
-# Initialize the Graph with our State schema
-workflow = StateGraph(AgentState)
+def check_test_results(state: AgentState):
+    """
+    Conditional logic:
+    - If tests passed, go to END.
+    - If tests failed, go to DEBUGGER.
+    - Safety: Stop after 3 debug attempts.
+    """
+    results = state.get("test_results", {})
+    iterations = state.get("debug_iterations", 0)
+    
+    if results.get("tests_passed", False):
+        return "end"
+    
+    if iterations >= 3:
+        print("--- MAX DEBUG ITERATIONS REACHED ---")
+        return "end"
+        
+    return "debugger"
 
-# ---------------------------------------------------------------------
-# ADD NODES
-# ---------------------------------------------------------------------
-# Each node represents an agent function we defined earlier
-workflow.add_node("planner", planner_agent)
-workflow.add_node("tech_lead", tech_lead_agent)
-workflow.add_node("coder", coder_agent)
+def build_graph():
+    workflow = StateGraph(AgentState)
 
-# ---------------------------------------------------------------------
-# DEFINE EDGES (The Control Flow)
-# ---------------------------------------------------------------------
-# 1. Start with the Planner [cite: 130-131]
-workflow.set_entry_point("planner")
+    # Add Nodes
+    workflow.add_node("planner", planner_agent)
+    workflow.add_node("tech_lead", tech_lead_agent)
+    workflow.add_node("coder", coder_agent)
+    workflow.add_node("reviewer", reviewer_agent) # <--- ADD NODE
+    workflow.add_node("tester", tester_agent)
+    workflow.add_node("debugger", debugger_agent)
 
-# 2. Planner -> Tech Lead [cite: 132-133]
-workflow.add_edge("planner", "tech_lead")
+    # Define Edges
+    workflow.set_entry_point("planner")
+    workflow.add_edge("planner", "tech_lead")
+    workflow.add_edge("tech_lead", "coder")
+    
+    # NEW FLOW: Coder -> Reviewer -> Tester
+    workflow.add_edge("coder", "reviewer")
+    workflow.add_edge("reviewer", "tester")
+    
+    # Conditional Edge from Tester
+    workflow.add_conditional_edges(
+        "tester",
+        check_test_results,
+        {
+            "end": END,
+            "debugger": "debugger"
+        }
+    )
+    
+    # Loop back from Debugger to Tester
+    workflow.add_edge("debugger", "tester")
 
-# 3. Tech Lead -> Coder [cite: 134-135]
-workflow.add_edge("tech_lead", "coder")
+    return workflow.compile()
 
-# 4. Coder -> END (For now. Later this will go to "tester")
-workflow.add_edge("coder", END)
-
-# ---------------------------------------------------------------------
-# COMPILE
-# ---------------------------------------------------------------------
-app = workflow.compile()
+app = build_graph()

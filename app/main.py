@@ -1,6 +1,6 @@
 import os
 import shutil
-import json  
+import json   
 from fastapi import FastAPI, HTTPException
 from app.core.schemas import BuildRequest, BuildResponse
 from app.core.config import settings
@@ -13,11 +13,8 @@ api = FastAPI(
 )
 
 def save_project_to_disk(project_name: str, files: dict) -> str:
-    """
-    Helper to write generated files to the 'generated_projects' directory.
-    """
+    """Helper to write generated files to disk."""
     project_path = os.path.join(settings.GENERATION_DIR, project_name)
-    
     if os.path.exists(project_path):
         shutil.rmtree(project_path)
     os.makedirs(project_path, exist_ok=True)
@@ -25,7 +22,6 @@ def save_project_to_disk(project_name: str, files: dict) -> str:
     for filepath, content in files.items():
         full_path = os.path.join(project_path, filepath)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        
         with open(full_path, "w", encoding="utf-8") as f:
             f.write(content)
             
@@ -35,12 +31,16 @@ def save_project_to_disk(project_name: str, files: dict) -> str:
 async def build_project(request: BuildRequest):
     print(f"Received build request for: {request.project_name}")
 
+    # INITIALIZE STATE WITH NEW COUNTER
     initial_state = {
         "user_input": request.model_dump(),
         "plan": [],
         "tech_decisions": {},
         "files": {},
-        "status": "started"
+        "test_results": {},
+        "review_report": "Pending...", # <--- Initialize
+        "status": "started",
+        "debug_iterations": 0
     }
 
     try:
@@ -53,16 +53,18 @@ async def build_project(request: BuildRequest):
             final_state.get("files", {})
         )
 
-        # 3. Construct the Summary Object
+        # 3. Construct Summary
         summary = {
             "project_name": request.project_name,
             "plan": final_state.get("plan", []),
             "tech_stack": final_state.get("tech_decisions", {}),
+            "review_report": final_state.get("review_report", "Not run"), # <--- ADD THIS
+            "test_results": final_state.get("test_results", {}),
             "files_generated": list(final_state.get("files", {}).keys()),
             "download_path": project_path
         }
 
-        # 4. Save Summary JSON to the Project Folder
+        # 4. Save Summary JSON
         summary_path = os.path.join(project_path, "autodev_summary.json")
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
