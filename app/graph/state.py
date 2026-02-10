@@ -7,5 +7,4 @@ class AgentState(TypedDict):
     files: Dict[str, str]
     test_results: Dict[str, Any]
     debug_iterations: int # <--- Add this field
-    review_report: str
     errors: List[str]

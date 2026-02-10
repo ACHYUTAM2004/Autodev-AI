@@ -1,11 +1,10 @@
 from langgraph.graph import StateGraph, END
 from app.graph.state import AgentState
-from app.agents.planner import planner_agent
-from app.agents.tech_lead import tech_lead_agent
 from app.agents.coder import coder_agent
-from app.agents.reviewer import reviewer_agent  # <--- IMPORT
 from app.agents.tester import tester_agent
 from app.agents.debugger import debugger_agent 
+from app.agents.architect import architect_agent
+
 
 def check_test_results(state: AgentState):
     """
@@ -30,21 +29,17 @@ def build_graph():
     workflow = StateGraph(AgentState)
 
     # Add Nodes
-    workflow.add_node("planner", planner_agent)
-    workflow.add_node("tech_lead", tech_lead_agent)
+    workflow.add_node("architect", architect_agent)
     workflow.add_node("coder", coder_agent)
-    workflow.add_node("reviewer", reviewer_agent) # <--- ADD NODE
     workflow.add_node("tester", tester_agent)
     workflow.add_node("debugger", debugger_agent)
 
     # Define Edges
-    workflow.set_entry_point("planner")
-    workflow.add_edge("planner", "tech_lead")
-    workflow.add_edge("tech_lead", "coder")
+    workflow.set_entry_point("architect")
+    workflow.add_edge("architect", "coder")
     
     # NEW FLOW: Coder -> Reviewer -> Tester
-    workflow.add_edge("coder", "reviewer")
-    workflow.add_edge("reviewer", "tester")
+    workflow.add_edge("coder", "tester")
     
     # Conditional Edge from Tester
     workflow.add_conditional_edges(

@@ -15,8 +15,7 @@ api = FastAPI(
 def save_project_to_disk(project_name: str, files: dict) -> str:
     """Helper to write generated files to disk."""
     project_path = os.path.join(settings.GENERATION_DIR, project_name)
-    if os.path.exists(project_path):
-        shutil.rmtree(project_path)
+    
     os.makedirs(project_path, exist_ok=True)
 
     for filepath, content in files.items():
@@ -38,7 +37,6 @@ async def build_project(request: BuildRequest):
         "tech_decisions": {},
         "files": {},
         "test_results": {},
-        "review_report": "Pending...", # <--- Initialize
         "status": "started",
         "debug_iterations": 0
     }
@@ -58,7 +56,6 @@ async def build_project(request: BuildRequest):
             "project_name": request.project_name,
             "plan": final_state.get("plan", []),
             "tech_stack": final_state.get("tech_decisions", {}),
-            "review_report": final_state.get("review_report", "Not run"), # <--- ADD THIS
             "test_results": final_state.get("test_results", {}),
             "files_generated": list(final_state.get("files", {}).keys()),
             "download_path": project_path

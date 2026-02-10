@@ -10,14 +10,14 @@ from app.core.config import settings
 from app.core.logger import logger
 
 # ---------------------------------------------------------------------
-# ROBUST PROMPT
+# TESTER PROMPT
 # ---------------------------------------------------------------------
 tester_prompt = ChatPromptTemplate.from_messages([
     ("system", """You are the Test Automation Engineer for AutoDev AI.
     
     **Goal:** 1. Read the provided source code.
     2. Write unit tests for it.
-    3. Specify the testing framework (e.g., 'pytest', 'unittest', 'jest').
+    3. Specify the testing framework (e.g., 'pytest', 'unittest').
     
     **Output Format:**
     Do NOT return JSON. Return the test files wrapped in XML-style tags:
@@ -45,17 +45,35 @@ tester_prompt = ChatPromptTemplate.from_messages([
 ])
 
 # ---------------------------------------------------------------------
-# PARSING & SANITIZATION HELPER
+# PARSING & SANITIZATION HELPER (FIXED)
 # ---------------------------------------------------------------------
 def sanitize_content(content: str) -> str:
     content = content.strip()
+    
+    # 1. Remove wrapping quotes if the LLM added them (JSON style)
     if content.startswith('"') and content.endswith('"'):
         content = content[1:-1]
+        
+    # 2. Fix literal "\n" to actual newlines
     if "\\n" in content and "\n" not in content:
         content = content.replace("\\n", "\n")
+        
+    # 3. CRITICAL FIX: Unescape quotes (The error you are seeing)
+    # Turns client.post(\'/users\') -> client.post('/users')
+    content = content.replace("\\'", "'").replace('\\"', '"')
+    
     return content
 
-def parse_tester_output(text: str):
+def parse_tester_output(text: Union[str, list]):
+    """Robustly extracts files from LLM output, handling List inputs."""
+    
+    # --- FIX START: Handle List Input ---
+    if isinstance(text, list):
+        text = "".join(str(item) for item in text)
+    if not isinstance(text, str):
+        text = str(text)
+    # --- FIX END ---
+
     files = {}
     framework = "pytest" 
     
@@ -82,6 +100,9 @@ def run_command(command: Union[str, List[str]], cwd: str, timeout: int = 300) ->
         logger.info(f"--- EXEC: {cmd_str} in {cwd} ---")
         use_shell = isinstance(command, str)
         env = os.environ.copy()
+        # Force unbuffered output for Python to capture logs better
+        env["PYTHONUNBUFFERED"] = "1" 
+        
         result = subprocess.run(
             command, cwd=cwd, shell=use_shell, capture_output=True, text=True, timeout=timeout, env=env
         )
@@ -128,14 +149,11 @@ def setup_and_run_tests(project_name: str, files: dict, framework: str, tech_sta
         logs.append(out)
         if not ok: return False, "\n".join(logs)
 
-        # C. Install Framework (UPDATED FIX)
+        # C. Install Framework & Tools
         if framework and framework.lower() != "unittest":
             logs.append(f"--- Installing {framework} ---")
-            ok, out = run_command([python_exe, "-m", "pip", "install", framework], project_path)
-            logs.append(out)
+            run_command([python_exe, "-m", "pip", "install", framework], project_path)
             
-            # --- NEW: Install httpx for FastAPI ---
-            # FastAPI TestClient requires 'httpx' but it's often missing in standard requirements
             if "fastapi" in tech_stack.get("framework", "").lower():
                  logs.append("--- Installing httpx (Required for FastAPI TestClient) ---")
                  run_command([python_exe, "-m", "pip", "install", "httpx"], project_path)
@@ -157,6 +175,7 @@ def setup_and_run_tests(project_name: str, files: dict, framework: str, tech_sta
         logs.append(out)
         success = ok
 
+    # Save logs
     with open(os.path.join(project_path, "test_execution.log"), "w", encoding="utf-8") as f:
         f.write("\n".join(logs))
         
@@ -173,6 +192,7 @@ def tester_agent(state: AgentState):
     existing_files = state.get("files", {})
     tech_stack_str = f"{tech_decisions.get('language')} / {tech_decisions.get('framework')}"
 
+    # Prepare Context
     file_context_str = ""
     for path, content in existing_files.items():
         if not path.endswith((".lock", ".png", ".jpg", ".pyc")):
@@ -188,7 +208,9 @@ def tester_agent(state: AgentState):
             "file_context": file_context_str[:25000]
         })
         
+        # Parse (Now handles lists safely)
         files_dict, framework = parse_tester_output(response.content)
+        
         all_files = {**existing_files, **files_dict}
         
         success, output = setup_and_run_tests(user_req.get("project_name"), all_files, framework, tech_decisions)
