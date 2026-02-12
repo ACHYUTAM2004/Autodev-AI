@@ -6,49 +6,47 @@ from app.graph.state import AgentState
 from app.core.logger import logger
 
 # ---------------------------------------------------------------------
-# 1. HYBRID PROMPT (CoT + Knowledge Base)
+# 1. SUPERCHARGED PROMPT (CoT + Blindness Fix)
 # ---------------------------------------------------------------------
 debugger_prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are the Senior QA & Debugging Engineer at AutoDev AI.
+    ("system", """You are the Senior AI Software Architect and Debugging Lead at AutoDev AI.
     
-    **Goal:** Fix ALL errors in the provided code based on the Test Output.
+    **Goal:** Fix ALL errors in the provided code to make the tests pass.
     
-    **CRITICAL INSTRUCTION: Chain of Thought**
-    You MUST think before you code. Do not just guess.
-    1.  **Analyze**: Read the error log. Match it against your Knowledge Base below.
-    2.  **Plan**: Describe the fix step-by-step.
-    3.  **Execute**: Write the corrected code.
-
-    **Knowledge Base (Common Fixes):**
-    1.  **Error:** `ArgumentError: ... includes dataclasses argument(s): 'default_factory'`
-        -   **Fix:** SQLAlchemy `mapped_column` does NOT accept `default_factory`. Change it to `default=...` or remove it.
+    **CRITICAL INSTRUCTION: DEEP REASONING (Chain of Thought)**
+    You must output a `<plan>` tag before writing code. Inside the plan:
+    1.  **Quote**: Copy the specific error message from the logs.
+    2.  **Root Cause**: Why is this happening? (e.g., "Test expects 404 but got 200", "Missing dependency", "Fixture scope mismatch").
+    3.  **Strategy**: Detail the specific steps to fix it.
     
-    2.  **Error:** `TypeError: Client.__init__() got an unexpected keyword argument 'app'`
-        -   **Fix:** The installed `httpx` version is too new. Downgrade to `httpx==0.25.2` in `requirements.txt`.
+    **CRITICAL INSTRUCTION: FIXING "BLINDNESS"**
+    - The Coder might have forgotten to create essential files.
+    - **IF A FILE IS MISSING, CREATE IT.**
+    - Common missing files: `tests/conftest.py`, `.env`, `pytest.ini`, `tests/__init__.py`.
+    - Do not complain that a file is missing. Just output the `<file path="...">` tag with the new content.
     
-    3.  **Error:** `fixture 'mocker' not found`
-        -   **Fix:** Add `pytest-mock` to `requirements.txt`.
-        
-    4.  **Error:** `pydantic_core.ValidationError` (Field required)
-        -   **Fix:** Ensure a `.env` file exists with the required variables.
+    **KNOWLEDGE BASE (Common Pitfalls):**
+    1.  **ScopeMismatch (Pytest):** If you see "You tried to access the function scoped fixture mocker...", you MUST change your fixture scope or use `session_mocker` from `pytest-mock`.
+    2.  **404 vs 200 (FastAPI):** If tests fail with 404, check if `httpx` is hitting the correct base URL or if the DB was reset correctly in `conftest.py`.
+    3.  **Missing Dependencies:** If `ModuleNotFoundError`, check `requirements.txt`.
+    4.  **Pydantic V2:** Use `model_validate` instead of `from_orm`.
     
     **Output Format:**
     Return the response in this exact XML structure:
     
     <plan>
-    1. The error "ModuleNotFoundError: httpx" matches Knowledge Base item #2.
-    2. I will add 'httpx==0.25.2' to requirements.txt.
-    3. I will also verify imports in tests/test_main.py.
+    1. Error: "Fixture 'mocker' not found".
+    2. Cause: Missing pytest-mock dependency.
+    3. Strategy: Add pytest-mock to requirements.txt.
     </plan>
     
     <file path="requirements.txt">
     fastapi
-    httpx==0.25.2
-    pytest
+    pytest-mock
     </file>
     
     **Rules:**
-    - Return the FULL content of any file you modify.
+    - Return the FULL content of any file you modify or create.
     - Do not use markdown blocks (```python) inside the XML tags.
     """),
     ("user", """
@@ -111,7 +109,7 @@ def debugger_agent(state: AgentState):
     # 1. Prepare Context
     file_context_str = ""
     for path, content in existing_files.items():
-        # Skip binary/lock files
+        # Skip binary/lock files to save tokens
         if not path.endswith((".lock", ".png", ".jpg", ".pyc", ".zip", "package-lock.json")):
             file_context_str += f"\n--- FILE: {path} ---\n{content}\n"
 
@@ -130,8 +128,13 @@ def debugger_agent(state: AgentState):
         
         if not fixed_files:
             logger.warning("⚠️ Debugger returned no files. It might have failed to find a fix.")
+        else:
+            # Check for NEW files (Blindness Fix verification)
+            new_paths = set(fixed_files.keys()) - set(existing_files.keys())
+            if new_paths:
+                logger.info(f"✨ Debugger CREATED new files: {new_paths}")
         
-        # 4. Merge Updates
+        # 4. Merge Updates (This logic handles both edits AND creations)
         new_files = {**existing_files, **fixed_files}
         
         return {

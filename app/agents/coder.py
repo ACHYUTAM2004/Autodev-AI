@@ -6,7 +6,7 @@ from app.graph.state import AgentState
 from app.core.logger import logger
 
 # ---------------------------------------------------------------------
-# 1. UPGRADED PROMPT (With Feedback Loop)
+# 1. STANDARD PROMPT (No Self-Correction)
 # ---------------------------------------------------------------------
 coder_prompt = ChatPromptTemplate.from_messages([
     ("system", """You are the Senior Full-Stack Developer at AutoDev AI.
@@ -18,17 +18,16 @@ coder_prompt = ChatPromptTemplate.from_messages([
     - **Architecture:** {architecture}
     - **Plan:** {plan}
     
-    **STRICT RULES (You will be penalized for breaking these):**
+    **STRICT RULES:**
     
     1.  **Dependency Safety:**
-        -   If using **FastAPI**, you MUST pin `httpx==0.25.2` in `requirements.txt` (newer versions break TestClient).
+        -   If using **FastAPI**, you MUST pin `httpx==0.25.2` in `requirements.txt`.
         -   If using **Pytest**, you MUST include `pytest-mock` and `pytest-asyncio`.
         -   If using **SQLAlchemy**, you MUST include `aiosqlite` (for async SQLite) or `asyncpg` (for Postgres).
         
     2.  **Configuration & Security:**
         -   NEVER hardcode secrets. Use `os.getenv()`.
         -   **YOU MUST generate a `.env` file** with default development values.
-        -   Example .env content: `DATABASE_URL=sqlite+aiosqlite:///./test.db`, `SECRET_KEY=dev-secret-key`.
         
     3.  **Testing Readiness:**
         -   If creating a `tests/` folder, YOU MUST include an empty `<file path="tests/__init__.py"></file>`.
@@ -36,13 +35,11 @@ coder_prompt = ChatPromptTemplate.from_messages([
         
     4.  **File Formatting:**
         -   Do NOT use escaped newlines (\\n) inside the code string. Write actual newlines.
-        -   Do NOT include comments like `` inside Python files.
      
     5.  **SQLAlchemy 2.0 Compliance (CRITICAL):**
         -   Use `Mapped[type]` and `mapped_column()`.
-        -   **NEVER** use `default_factory` inside `mapped_column()`. It is NOT supported.
+        -   **NEVER** use `default_factory` inside `mapped_column()`.
         -   Use `default=datetime.now` (Python-side) or `server_default=func.now()` (DB-side).
-        -   Do NOT mix Pydantic `Field(...)` logic into SQLAlchemy Models.
     
     **Output Format:**
     Return the file content wrapped in XML tags exactly like this:
@@ -54,18 +51,10 @@ coder_prompt = ChatPromptTemplate.from_messages([
     
     <file path=".env">
     DATABASE_URL=sqlite+aiosqlite:///./dev.db
-    SECRET_KEY=dev-key
     </file>
     
     <file path="requirements.txt">
     fastapi
-    uvicorn
-    sqlalchemy
-    aiosqlite
-    pydantic-settings
-    pytest
-    pytest-mock
-    pytest-asyncio
     httpx==0.25.2
     </file>
     """),
@@ -73,25 +62,21 @@ coder_prompt = ChatPromptTemplate.from_messages([
     Project Name: {project_name}
     Description: {description}
     User Constraints: {constraints}
-    
-    {previous_feedback}
     """)
 ])
 
 # ---------------------------------------------------------------------
-# 2. PARSING & SANITIZATION HELPER (Unchanged & Robust)
+# 2. PARSING & SANITIZATION HELPER
 # ---------------------------------------------------------------------
 def sanitize_content(content: str) -> str:
     """Cleans up common LLM formatting errors."""
     content = content.strip()
     
-    # 1. Remove wrapping quotes if the LLM added them
     if content.startswith('"') and content.endswith('"'):
         content = content[1:-1]
     elif content.startswith("'") and content.endswith("'"):
         content = content[1:-1]
         
-    # 2. Fix escaped newlines in single-line output
     if "\\n" in content and "\n" not in content:
         logger.warning("Detected escaped newlines in single-line output. Fixing...")
         content = content.replace("\\n", "\n")
@@ -100,13 +85,11 @@ def sanitize_content(content: str) -> str:
 
 def parse_xml_output(text: Union[str, List]) -> dict:
     """Extracts file paths and content using Regex."""
-    # Handle list input (Gemini quirk)
     if isinstance(text, list):
         text = "".join(str(item) for item in text)
     if not isinstance(text, str):
         text = str(text)
 
-    # Regex to find <file path="...">CONTENT</file>
     pattern = r'<file\s+path="([^"]+)">\s*(.*?)\s*</file>'
     matches = re.findall(pattern, text, re.DOTALL)
     
@@ -117,38 +100,14 @@ def parse_xml_output(text: Union[str, List]) -> dict:
     return files
 
 # ---------------------------------------------------------------------
-# 3. AGENT FUNCTION (With Loop Fix)
+# 3. AGENT FUNCTION (Reverted to Standard)
 # ---------------------------------------------------------------------
 def coder_agent(state: AgentState):
     user_req = state["user_input"]
     plan = state.get("plan", [])
     tech_decisions = state.get("tech_decisions", {})
     
-    # Check for previous failures (Reflection)
-    attempt = state.get("debug_iterations", 0)
-    test_results = state.get("test_results", {})
-    previous_error = test_results.get("output", "")
-    tests_passed = test_results.get("tests_passed", True)
-
-    # Determine if we are in "Fix Mode"
-    is_fixing = False
-    if previous_error and not tests_passed:
-        is_fixing = True
-        logger.info(f"🧠 CODER is reflecting on failures (Attempt {attempt})...")
-        feedback_str = f"""
-        ⚠️ **CRITICAL: FIX PREVIOUS ERRORS** ⚠️
-        You wrote code previously, but it failed the tests.
-        
-        --- PREVIOUS ERROR LOG ---
-        {previous_error[-2000:]}  # (Truncated for token limits)
-        
-        **YOUR TASK:**
-        Rewrite the code to completely resolve these errors. 
-        Do not repeat the same mistakes.
-        """
-    else:
-        logger.info(f"--- CODER AGENT: Writing code for {user_req.get('project_name')} ---")
-        feedback_str = ""
+    logger.info(f"--- CODER AGENT: Writing code for {user_req.get('project_name')} ---")
 
     # Context Variables
     stack_str = f"{tech_decisions.get('language', 'Python')} using {tech_decisions.get('framework', 'FastAPI')}"
@@ -156,7 +115,7 @@ def coder_agent(state: AgentState):
     plan_str = "\n".join(plan) if isinstance(plan, list) else str(plan)
     
     # Invoke LLM
-    llm = get_llm(temperature=0.0) # Zero temp for strict adherence
+    llm = get_llm(temperature=0.0) 
     chain = coder_prompt | llm 
     
     try:
@@ -166,8 +125,7 @@ def coder_agent(state: AgentState):
             "constraints": user_req.get("constraints", {}),
             "tech_stack": stack_str,
             "architecture": arch_str,
-            "plan": plan_str,
-            "previous_feedback": feedback_str # <--- Injected here
+            "plan": plan_str
         })
 
         files_dict = parse_xml_output(response.content)
@@ -179,15 +137,10 @@ def coder_agent(state: AgentState):
             logger.warning(raw[:500])
         
         logger.info(f"Coder generated {len(files_dict)} files.")
-
-        # --- CRITICAL FIX ---
-        # If we were fixing errors, increment the counter so the Router knows 
-        # to send it to the Debugger if it fails again.
-        increment = 1 if is_fixing else 0
         
+        # Return files only (Iteration logic handled elsewhere)
         return {
-            "files": files_dict,
-            "debug_iterations": state.get("debug_iterations", 0) + increment
+            "files": files_dict
         }
         
     except Exception as e:
