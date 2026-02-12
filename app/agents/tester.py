@@ -115,7 +115,7 @@ def setup_and_run_tests(project_name: str, files: dict, framework: str, tech_sta
     project_path = os.path.join(settings.GENERATION_DIR, project_name)
     os.makedirs(project_path, exist_ok=True)
     
-    # 1. Write Files
+    # 1. Write Files (Always write files to capture fixes from Debugger)
     for filepath, content in files.items():
         full_path = os.path.join(project_path, filepath)
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -132,44 +132,63 @@ def setup_and_run_tests(project_name: str, files: dict, framework: str, tech_sta
         venv_dir = os.path.join(project_path, "venv")
         if is_windows:
             python_exe = os.path.join(venv_dir, "Scripts", "python.exe")
+            pip_exe = os.path.join(venv_dir, "Scripts", "pip.exe")
         else:
             python_exe = os.path.join(venv_dir, "bin", "python")
+            pip_exe = os.path.join(venv_dir, "bin", "pip")
 
-        # A. Create Venv
+        # --- OPTIMIZATION START ---
+        # A. Create Venv (ONLY if it doesn't exist)
         if not os.path.exists(python_exe):
-            logs.append(f"--- Creating Venv ---")
+            logs.append(f"--- Creating Venv (First Run Only) ---")
             ok, out = run_command([sys.executable, "-m", "venv", "venv"], project_path)
             logs.append(out)
             if not ok: return False, "\n".join(logs)
 
-        # B. Install Dependencies
-        logs.append("--- Installing Dependencies ---")
-        run_command([python_exe, "-m", "pip", "install", "--upgrade", "pip"], project_path)
+            # Upgrade pip ONLY once (when venv is created)
+            logs.append("--- Upgrading Pip (First Run Only) ---")
+            run_command([python_exe, "-m", "pip", "install", "--upgrade", "pip"], project_path)
+        else:
+            logs.append("--- Venv exists, skipping creation ---")
+
+        # B. Install Dependencies (ALWAYS run this to catch new packages)
+        logs.append("--- Installing/Updating Dependencies ---")
+        # pip install is smart; if requirements haven't changed, this is very fast.
         ok, out = run_command([python_exe, "-m", "pip", "install", "-r", "requirements.txt"], project_path)
         logs.append(out)
         if not ok: return False, "\n".join(logs)
 
-        # C. Install Framework & Tools
+        # C. Install Framework & Tools (Check if installed to save time)
+        # We blindly run this because 'pip install' is fast if already satisfied, 
+        # but you could optimize further by checking 'pip list'.
         if framework and framework.lower() != "unittest":
-            logs.append(f"--- Installing {framework} ---")
+            logs.append(f"--- Ensuring {framework} is installed ---")
             run_command([python_exe, "-m", "pip", "install", framework], project_path)
             
             if "fastapi" in tech_stack.get("framework", "").lower():
-                 logs.append("--- Installing httpx (Required for FastAPI TestClient) ---")
                  run_command([python_exe, "-m", "pip", "install", "httpx"], project_path)
+        # --- OPTIMIZATION END ---
 
         # D. Run Tests
         logs.append(f"--- Running Tests ({framework}) ---")
         test_cmd = [python_exe, "manage.py", "test"] if "django" in tech_stack.get("framework", "").lower() else [python_exe, "-m", framework]
+        
+        # Capture the output
         ok, out = run_command(test_cmd, project_path)
         logs.append(out)
         success = ok
 
     elif "node" in language or "javascript" in language:
-        logs.append("--- Installing Dependencies ---")
-        ok, out = run_command("npm install", project_path)
-        logs.append(out)
-        if not ok: return False, "\n".join(logs)
+        # Node optimization: check for node_modules
+        if not os.path.exists(os.path.join(project_path, "node_modules")):
+             logs.append("--- Installing Node Dependencies (First Run) ---")
+             ok, out = run_command("npm install", project_path)
+             if not ok: return False, out
+        else:
+             # Just run install to catch new packages (npm is usually fast at this)
+             logs.append("--- Updating Node Dependencies ---")
+             run_command("npm install", project_path)
+
         logs.append("--- Running Tests ---")
         ok, out = run_command("npm test", project_path)
         logs.append(out)
