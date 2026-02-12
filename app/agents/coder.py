@@ -6,7 +6,7 @@ from app.graph.state import AgentState
 from app.core.logger import logger
 
 # ---------------------------------------------------------------------
-# ROBUST PROMPT (XML-STYLE)
+# 1. UPGRADED PROMPT (With Feedback Loop)
 # ---------------------------------------------------------------------
 coder_prompt = ChatPromptTemplate.from_messages([
     ("system", """You are the Senior Full-Stack Developer at AutoDev AI.
@@ -15,6 +15,7 @@ coder_prompt = ChatPromptTemplate.from_messages([
     
     **Input Context:**
     - **Stack:** {tech_stack}
+    - **Architecture:** {architecture}
     - **Plan:** {plan}
     
     **STRICT RULES (You will be penalized for breaking these):**
@@ -72,26 +73,27 @@ coder_prompt = ChatPromptTemplate.from_messages([
     Project Name: {project_name}
     Description: {description}
     User Constraints: {constraints}
+    
+    {previous_feedback}
     """)
 ])
 
 # ---------------------------------------------------------------------
-# PARSING & SANITIZATION HELPER
+# 2. PARSING & SANITIZATION HELPER (Unchanged & Robust)
 # ---------------------------------------------------------------------
 def sanitize_content(content: str) -> str:
     """Cleans up common LLM formatting errors."""
     content = content.strip()
     
-    # 1. Remove wrapping quotes if the LLM added them (e.g., "import os...")
+    # 1. Remove wrapping quotes if the LLM added them
     if content.startswith('"') and content.endswith('"'):
         content = content[1:-1]
     elif content.startswith("'") and content.endswith("'"):
         content = content[1:-1]
         
-    # 2. Fix escaped newlines (The "requirements.txt" fix)
-    # If the content contains literal "\n" but NO actual newlines, it's a single-line mess.
+    # 2. Fix escaped newlines in single-line output
     if "\\n" in content and "\n" not in content:
-        logger.warning("Detected escaped newlines in single-line output. fixing...")
+        logger.warning("Detected escaped newlines in single-line output. Fixing...")
         content = content.replace("\\n", "\n")
         
     return content
@@ -115,21 +117,43 @@ def parse_xml_output(text: Union[str, List]) -> dict:
     return files
 
 # ---------------------------------------------------------------------
-# AGENT FUNCTION
+# 3. AGENT FUNCTION (With Self-Correction Logic)
 # ---------------------------------------------------------------------
 def coder_agent(state: AgentState):
-    logger.info(f"--- CODER AGENT: Writing code for {state['user_input'].get('project_name')} ---")
-    
     user_req = state["user_input"]
     plan = state.get("plan", [])
     tech_decisions = state.get("tech_decisions", {})
     
+    # Check for previous failures (Reflection)
+    attempt = state.get("debug_iterations", 0)
+    test_results = state.get("test_results", {})
+    previous_error = test_results.get("output", "")
+    
+    # Prepare the Feedback String
+    if attempt > 0 and previous_error:
+        logger.info(f"🧠 CODER is reflecting on failures (Attempt {attempt})...")
+        feedback_str = f"""
+        ⚠️ **CRITICAL: FIX PREVIOUS ERRORS** ⚠️
+        You wrote code previously, but it failed the tests.
+        
+        --- PREVIOUS ERROR LOG ---
+        {previous_error[-2000:]}  # (Truncated for token limits)
+        
+        **YOUR TASK:**
+        Rewrite the code to completely resolve these errors. 
+        Do not repeat the same mistakes.
+        """
+    else:
+        logger.info(f"--- CODER AGENT: Writing code for {user_req.get('project_name')} ---")
+        feedback_str = ""
+
+    # Context Variables
     stack_str = f"{tech_decisions.get('language', 'Python')} using {tech_decisions.get('framework', 'FastAPI')}"
     arch_str = f"Database: {tech_decisions.get('database', 'SQLite')}, Auth: {tech_decisions.get('auth', 'None')}"
-    
     plan_str = "\n".join(plan) if isinstance(plan, list) else str(plan)
     
-    llm = get_llm(temperature=0.0)
+    # Invoke LLM
+    llm = get_llm(temperature=0.0) # Zero temp for strict adherence
     chain = coder_prompt | llm 
     
     try:
@@ -139,7 +163,8 @@ def coder_agent(state: AgentState):
             "constraints": user_req.get("constraints", {}),
             "tech_stack": stack_str,
             "architecture": arch_str,
-            "plan": plan_str
+            "plan": plan_str,
+            "previous_feedback": feedback_str # <--- Injected here
         })
 
         files_dict = parse_xml_output(response.content)
