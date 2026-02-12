@@ -2,11 +2,16 @@ import reflex as rx
 import httpx
 import json
 import os
+import logging
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles # <--- New Import
 
 # Import your backend API
 from app.main import api as autodevapi
+
+# Setup Logging so we can SEE what is happening on Render
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("autodev_deploy")
 
 # --- 1. STATE (The Logic) ---
 class State(rx.State):
@@ -131,36 +136,37 @@ def main_card():
 def index():
     return rx.center(main_card(), width="100%", min_height="100vh", background="radial-gradient(circle at 50% 10%, #2a1b3d 0%, #000000 100%)", padding="2em")
 
+# --- 3. APP DEFINITION (Recursive Search) ---
 def mount_autodev(app: FastAPI) -> FastAPI:
-    # 1. Mount API
     app.mount("/autodev", autodevapi)
 
-    # 2. DEBUG: Print directory structure to Render Logs
-    print(f"📂 Current Working Directory: {os.getcwd()}")
-    try:
-        print(f"📂 Listing current folder: {os.listdir('.')}")
-        if os.path.exists(".web"):
-            print(f"📂 Listing .web folder: {os.listdir('.web')}")
-    except Exception as e:
-        print(f"⚠️ Error checking dirs: {e}")
-
-    # 3. Search for the build files
-    # We prioritize 'public' (our safe folder), then fallback to standard locations
+    # 1. SEARCH for the Build Directory
     build_dir = None
-    potential_dirs = ["public", ".web/_static", "frontend_build"]
+    search_start_dirs = ["public", ".web", "frontend_build"]
     
-    for d in potential_dirs:
-        # Check if index.html exists in this folder
-        if os.path.exists(os.path.join(d, "index.html")):
-            build_dir = d
-            print(f"✅ Found static site in: {d}")
+    logger.warning(f"🔍 STARTING SEARCH FOR INDEX.HTML. CWD: {os.getcwd()}")
+
+    # Helper to walk through folders
+    for start_dir in search_start_dirs:
+        if not os.path.exists(start_dir):
+            logger.warning(f"⚠️  Folder not found: {start_dir}")
+            continue
+            
+        # Walk through the directory tree
+        for root, dirs, files in os.walk(start_dir):
+            if "index.html" in files:
+                build_dir = root
+                logger.warning(f"✅ FOUND index.html in: {build_dir}")
+                break
+        if build_dir:
             break
-    
-    # 4. Mount the Static Files
+
+    # 2. MOUNT if found
     if build_dir:
+        logger.warning(f"🚀 MOUNTING STATIC FILES FROM: {build_dir}")
         app.mount("/", StaticFiles(directory=build_dir, html=True), name="static")
     else:
-        print("❌ CRITICAL: Could not find 'index.html' in any build folder.")
+        logger.error("❌ CRITICAL: Could not find 'index.html' anywhere. Site will be blank.")
 
     return app
 
