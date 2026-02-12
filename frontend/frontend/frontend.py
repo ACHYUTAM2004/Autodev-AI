@@ -2,6 +2,7 @@ import reflex as rx
 import httpx
 import json
 from app.main import api as autodevapi
+from fastapi import FastAPI
 
 # --- 1. STATE (The Logic) ---
 class State(rx.State):
@@ -211,12 +212,20 @@ def index():
     )
 
 # --- 3. APP DEFINITION ---
+# 1. Create a Master FastAPI App (The Wrapper)
+# This replaces the old 'app.api.mount' logic
+meta_app = FastAPI()
+meta_app.mount("/autodev", autodevapi)
+
+# 2. Initialize Reflex with the Master App
 app = rx.App(
     theme=rx.theme(
         appearance="dark", 
         accent_color="ruby", 
         radius="large"
-    )
+    ),
+    # This tells Reflex: "Use this existing FastAPI app as the base"
+    api_transformer=meta_app  
 )
-app.api.mount("/autodev", autodevapi)
+
 app.add_page(index)
