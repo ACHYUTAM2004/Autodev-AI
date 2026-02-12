@@ -212,20 +212,21 @@ def index():
     )
 
 # --- 3. APP DEFINITION ---
-# 1. Create a Master FastAPI App (The Wrapper)
-# This replaces the old 'app.api.mount' logic
-meta_app = FastAPI()
-meta_app.mount("/autodev", autodevapi)
+# Define a function to mount your custom backend
+def mount_autodev(fastapi_app: FastAPI) -> FastAPI:
+    # Mount the AutoDev API at /autodev
+    fastapi_app.mount("/autodev", autodevapi)
+    return fastapi_app
 
-# 2. Initialize Reflex with the Master App
+# Initialize Reflex App with the transformer function
 app = rx.App(
     theme=rx.theme(
         appearance="dark", 
         accent_color="ruby", 
         radius="large"
     ),
-    # This tells Reflex: "Use this existing FastAPI app as the base"
-    api_transformer=meta_app  
+    # PASS THE FUNCTION, NOT THE APP INSTANCE
+    api_transformer=mount_autodev
 )
 
 app.add_page(index)
