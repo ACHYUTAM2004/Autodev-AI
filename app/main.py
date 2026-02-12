@@ -139,4 +139,4 @@ async def build_project(request: BuildRequest):
         # Send final result to UI
         yield json.dumps({"type": "result", "data": summary}) + "\n"
 
-    return StreamingResponse(event_generator(), media_type="application/x-ndjson")v
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
