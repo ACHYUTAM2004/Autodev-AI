@@ -9,40 +9,44 @@ from app.core.logger import logger
 # ROBUST PROMPT
 # ---------------------------------------------------------------------
 debugger_prompt = ChatPromptTemplate.from_messages([
-    ("system", """You are the Senior Debugger at AutoDev AI.
+    ("system", """You are the Senior QA & Debugging Engineer at AutoDev AI.
     
-    **Goal:** Fix the code based on the provided Test Execution Logs.
+    **Goal:** Fix the failing code based on the Test Output.
     
     **Input Context:**
-    1. **Project:** {project_name}
-    2. **Test Output:** {test_output} (Contains errors/failures)
-    3. **Source Code:** {file_context}
+    - **Files:** The current file contents.
+    - **Error:** The error log from the Tester Agent.
     
-    **Your Task:**
-    1. Analyze the error trace (e.g., ImportErrors, AssertionErrors, SyntaxErrors).
-    2. Identify which file needs fixing.
-    3. Rewrite the *entire* file with the fix applied.
+    **Knowledge Base (Common Fixes):**
+    1.  **Error:** `ArgumentError: ... includes dataclasses argument(s): 'default_factory'`
+        -   **Fix:** SQLAlchemy `mapped_column` does NOT accept `default_factory`. Change it to `default=...` or remove it.
+    
+    2.  **Error:** `TypeError: Client.__init__() got an unexpected keyword argument 'app'`
+        -   **Fix:** The installed `httpx` version is too new. Downgrade to `httpx==0.25.2` in `requirements.txt`.
+    
+    3.  **Error:** `fixture 'mocker' not found`
+        -   **Fix:** Add `pytest-mock` to `requirements.txt`.
+        
+    4.  **Error:** `pydantic_core.ValidationError` (Field required)
+        -   **Fix:** Ensure a `.env` file exists with the required variables.
+
+    **Instructions:**
+    -   Analyze the error log.
+    -   Return the CORRECTED file content.
+    -   If the error is in `requirements.txt` (missing dependency), return the updated `requirements.txt`.
     
     **Output Format:**
-    Return the fixed file(s) wrapped in XML tags:
+    Return ONLY the corrected file(s) in XML format:
     
-    <file path="src/main.py">
-    ... (full fixed code) ...
+    <file path="src/models.py">
+    ... (corrected code) ...
     </file>
-    
-    **Rules:**
-    - ONLY return the files that need changes.
-    - Return the FULL content of the fixed file, not just a diff.
-    - Do not change logic that is already working.
     """),
     ("user", """
-    Project: {project_name}
+    Files: {existing_files}
     
-    --- TEST EXECUTION LOGS ---
+    Test Output (Error Log):
     {test_output}
-    
-    --- CURRENT FILES ---
-    {file_context}
     """)
 ])
 
@@ -80,51 +84,52 @@ def debugger_agent(state: AgentState):
     logger.info(f"--- DEBUGGER AGENT: Fixing {state['user_input'].get('project_name')} ---")
     
     user_req = state["user_input"]
-    test_results = state.get("test_results", {})
     existing_files = state.get("files", {})
+    test_results = state.get("test_results", {})
     
-    # 1. Prepare Context
-    # Limit logs to last 2000 chars to focus on the immediate error
-    error_log = test_results.get("output", "")
-    if len(error_log) > 5000:
-        error_log = "..." + error_log[-5000:]
-        
+    # 1. Prepare File Context (Stringify the files)
     file_context_str = ""
     for path, content in existing_files.items():
-        if not path.endswith((".lock", ".png", ".pyc")):
+        # Skip binary or irrelevant files to save tokens
+        if not path.endswith((".lock", ".png", ".jpg", ".pyc", ".zip")):
             file_context_str += f"\n--- FILE: {path} ---\n{content}\n"
 
-    # 2. Invoke LLM
-    llm = get_llm(temperature=0.1) # Low temp for precision
-    chain = debugger_prompt | llm
+    llm = get_llm(temperature=0.1)
+    chain = debugger_prompt | llm 
     
     try:
         response = chain.invoke({
-            "project_name": user_req.get("project_name"),
-            "test_output": error_log,
-            "file_context": file_context_str[:30000] # Context window limit
+            # --- FIX: Match the variable name in the prompt ---
+            "existing_files": file_context_str[:50000],  # Was "file_context"
+            "test_output": test_results.get("output", "No logs available.")
         })
         
-        # 3. Parse Fixes
-        fixed_files = parse_debugger_output(response.content)
+        # Parse the XML output to get the fixed files
+        # (Reusing the same parser from Coder Agent logic if available, 
+        # or a simple regex parser here)
+        from app.agents.tester import parse_tester_output 
+        # Note: We can reuse the tester/coder parser since the format is the same XML
         
-        if not fixed_files:
-            logger.warning("Debugger Agent suggested no changes.")
-            return {"files": existing_files} # No changes made
+        # For robustness, let's use a local parsing similar to Coder
+        import re
+        fixed_files = {}
+        # Parse XML: <file path="...">...</file>
+        pattern = r'<file\s+path="([^"]+)">\s*(.*?)\s*</file>'
+        matches = re.findall(pattern, response.content, re.DOTALL)
+        
+        for path, content in matches:
+            # Clean up content (remove markdown fences if LLM added them)
+            content = content.replace("```python", "").replace("```", "").strip()
+            fixed_files[path] = content
             
-        logger.info(f"Debugger fixed {len(fixed_files)} files: {list(fixed_files.keys())}")
-        
-        # 4. Merge Fixes
-        updated_files = {**existing_files, **fixed_files}
-        
-        # Get current iteration count
-        current_iter = state.get("debug_iterations", 0)
+        # Merge fixed files into existing files
+        new_files = {**existing_files, **fixed_files}
         
         return {
-            "files": updated_files,
-            "debug_iterations": current_iter + 1  # <--- MUST INCREMENT THIS
+            "files": new_files,
+            "debug_iterations": state["debug_iterations"] + 1
         }
-
+        
     except Exception as e:
-        logger.error(f"Error in Debugger Agent: {e}")
-        return {"errors": [f"Debugger failed: {str(e)}"]}
+        logger.error(f"Debugger failed: {e}")
+        return {"debug_iterations": state["debug_iterations"] + 1}

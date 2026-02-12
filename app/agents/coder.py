@@ -17,22 +17,55 @@ coder_prompt = ChatPromptTemplate.from_messages([
     - **Stack:** {tech_stack}
     - **Plan:** {plan}
     
-    **Strict Quality Standards (Self-Review):**
-    1. **Security:** NEVER hardcode passwords or API keys. Use environment variables.
-    2. **Robustness:** Handle potential errors (e.g., try/except blocks where appropriate).
-    3. **Completeness:** ALWAYS generate `requirements.txt` and a `README.md`.
-    4. **Testing:** If creating a `tests/` folder, YOU MUST include an empty `<file path="tests/__init__.py"></file>`.
-    5. **Style:** Use meaningful variable names and add docstrings to functions.
+    **STRICT RULES (You will be penalized for breaking these):**
+    
+    1.  **Dependency Safety:**
+        -   If using **FastAPI**, you MUST pin `httpx==0.25.2` in `requirements.txt` (newer versions break TestClient).
+        -   If using **Pytest**, you MUST include `pytest-mock` and `pytest-asyncio`.
+        -   If using **SQLAlchemy**, you MUST include `aiosqlite` (for async SQLite) or `asyncpg` (for Postgres).
+        
+    2.  **Configuration & Security:**
+        -   NEVER hardcode secrets. Use `os.getenv()`.
+        -   **YOU MUST generate a `.env` file** with default development values.
+        -   Example .env content: `DATABASE_URL=sqlite+aiosqlite:///./test.db`, `SECRET_KEY=dev-secret-key`.
+        
+    3.  **Testing Readiness:**
+        -   If creating a `tests/` folder, YOU MUST include an empty `<file path="tests/__init__.py"></file>`.
+        -   In `tests/conftest.py`, use `pytest_asyncio` fixtures if the app is async.
+        
+    4.  **File Formatting:**
+        -   Do NOT use escaped newlines (\\n) inside the code string. Write actual newlines.
+        -   Do NOT include comments like `` inside Python files.
+     
+    5.  **SQLAlchemy 2.0 Compliance (CRITICAL):**
+        -   Use `Mapped[type]` and `mapped_column()`.
+        -   **NEVER** use `default_factory` inside `mapped_column()`. It is NOT supported.
+        -   Use `default=datetime.now` (Python-side) or `server_default=func.now()` (DB-side).
+        -   Do NOT mix Pydantic `Field(...)` logic into SQLAlchemy Models.
     
     **Output Format:**
-    Do NOT return JSON. Return file content wrapped in XML tags:
+    Return the file content wrapped in XML tags exactly like this:
     
     <file path="src/main.py">
-    ... (code) ...
+    from fastapi import FastAPI
+    ...
+    </file>
+    
+    <file path=".env">
+    DATABASE_URL=sqlite+aiosqlite:///./dev.db
+    SECRET_KEY=dev-key
     </file>
     
     <file path="requirements.txt">
-    ... (dependencies) ...
+    fastapi
+    uvicorn
+    sqlalchemy
+    aiosqlite
+    pydantic-settings
+    pytest
+    pytest-mock
+    pytest-asyncio
+    httpx==0.25.2
     </file>
     """),
     ("user", """

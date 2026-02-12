@@ -1,8 +1,10 @@
 import os
 import shutil
 import json   
-from fastapi import FastAPI, HTTPException
-from app.core.schemas import BuildRequest, BuildResponse
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.core.schemas import BuildRequest
+from fastapi.responses import StreamingResponse
 from app.core.config import settings
 from app.graph.flow import app as graph_app 
 
@@ -10,6 +12,16 @@ api = FastAPI(
     title="AutoDev AI API",
     description="Autonomous Backend Generator Agent",
     version="1.0.0"
+)
+
+# --- ADD THIS BLOCK ---
+api.add_middleware(
+    CORSMiddleware,
+    # Allow Frontend (3000) AND Reflex Backend (8000)
+    allow_origins=["http://localhost:3000", "http://localhost:8000"], 
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 def save_project_to_disk(project_name: str, files: dict) -> str:
@@ -26,11 +38,10 @@ def save_project_to_disk(project_name: str, files: dict) -> str:
             
     return project_path
 
-@api.post("/build", response_model=BuildResponse)
+@api.post("/build")
 async def build_project(request: BuildRequest):
     print(f"Received build request for: {request.project_name}")
 
-    # INITIALIZE STATE WITH NEW COUNTER
     initial_state = {
         "user_input": request.model_dump(),
         "plan": [],
@@ -41,35 +52,60 @@ async def build_project(request: BuildRequest):
         "debug_iterations": 0
     }
 
-    try:
-        # 1. Run the Graph
-        final_state = graph_app.invoke(initial_state)
+    async def event_generator():
+        """Yields logs and the final result as a stream."""
         
-        # 2. Save Code Files
-        project_path = save_project_to_disk(
-            request.project_name, 
-            final_state.get("files", {})
-        )
+        # --- FIX 1: Initialize a persistent state container ---
+        current_state = initial_state.copy()
+        
+        # 1. Stream updates from LangGraph
+        async for event in graph_app.astream(initial_state):
+            for node_name, state_update in event.items():
+                
+                # --- FIX 2: Merge the new data into current_state ---
+                # This ensures we don't lose 'files' when the 'tester' runs
+                current_state.update(state_update)
+                
+                # Yield a log message for the UI
+                log_msg = f"🤖 {node_name.upper()} Agent finished task."
+                yield json.dumps({"type": "log", "content": log_msg}) + "\n"
+                
+                # Optional: Yield more specific logs
+                if node_name == "planner":
+                     yield json.dumps({"type": "log", "content": f"📋 Plan generated with {len(state_update.get('plan', []))} steps."}) + "\n"
+                elif node_name == "tester":
+                    # Show test results in real-time
+                    results = state_update.get("test_results", {})
+                    status = "Passed" if results.get("tests_passed") else "Failed"
+                    yield json.dumps({"type": "log", "content": f"🧪 Tests {status}"}) + "\n"
 
-        # 3. Construct Summary
+        # 2. Save files (Once graph is done)
+        yield json.dumps({"type": "log", "content": "💾 Saving project to disk..."}) + "\n"
+        
+        # --- FIX 3: Get files from the accumulated 'current_state' ---
+        files = current_state.get("files", {})
+        
+        if not files:
+            yield json.dumps({"type": "log", "content": "⚠️ Warning: No files found in final state."}) + "\n"
+        
+        # Save to disk
+        project_path = save_project_to_disk(request.project_name, files)
+
+        # 3. Create Summary & Download Link
         summary = {
             "project_name": request.project_name,
-            "plan": final_state.get("plan", []),
-            "tech_stack": final_state.get("tech_decisions", {}),
-            "test_results": final_state.get("test_results", {}),
-            "files_generated": list(final_state.get("files", {}).keys()),
-            "download_path": project_path
+            "tech_stack": current_state.get("tech_decisions", {}),
+            "test_results": current_state.get("test_results", {}),
+            # This URL matches the download endpoint we added earlier
+            "download_url": f"http://localhost:8001/download/{request.project_name}" 
         }
-
-        # 4. Save Summary JSON
+        
+        # Save Summary JSON inside the project folder
         summary_path = os.path.join(project_path, "autodev_summary.json")
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
-            
-        print(f"Saved project summary to: {summary_path}")
 
-        # 5. Return Response
-        return summary
+        # Yield the final result object to the Frontend
+        yield json.dumps({"type": "result", "data": summary}) + "\n"
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")

@@ -6,9 +6,6 @@ __pycache__/
 # Env
 .env
 
-# Logs
-*.log
-
 # IDE
 .vscode/
 .idea/
@@ -19,6 +16,12 @@ __pycache__/
 # Docs
 *.pdf
 
+# generated project dirs
 generated_projects/
 
+# logs
 logs/
+
+# Reflex / Frontend
+frontend/.web/
+frontend/__pycache__/
