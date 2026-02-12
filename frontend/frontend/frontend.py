@@ -44,7 +44,7 @@ class State(rx.State):
 
         self.is_building = True
         self.logs = [f"🚀 Starting build for '{self.project_name}'..."]
-        self.download_url = ""
+        self.download_url = "" # Reset download link
         yield 
 
         payload = {
@@ -55,13 +55,28 @@ class State(rx.State):
             }
         }
 
-        # Dynamic Port Detection for Render
-        port = os.getenv("PORT", "8000")
-        local_domain = f"http://localhost:{port}"
+        # --- THE FIX: Smart URL Detection ---
+        # 1. Try to get the real URL from the environment (Render sets RENDER_EXTERNAL_URL)
+        domain = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000")
+        
+        # 2. Add logging so we can see what URL it is trying to hit
+        print(f"🔗 Connecting to Backend at: {domain}")
+        self.logs.append(f"🔗 Connecting to: {domain}...")
+        yield
 
         try:
-            async with httpx.AsyncClient(base_url=local_domain, timeout=None) as client:
-                async with client.stream("POST", "/autodev/build", json=payload) as response:
+            async with httpx.AsyncClient(base_url=domain, timeout=None) as client:
+                async with client.stream(
+                    "POST",
+                    "/autodev/build", 
+                    json=payload
+                ) as response:
+                    
+                    if response.status_code != 200:
+                        self.logs.append(f"❌ Server Error: {response.status_code}")
+                        yield
+                        return
+
                     async for line in response.aiter_lines():
                         if not line: continue
                         try:
@@ -77,12 +92,15 @@ class State(rx.State):
                                     self.download_url = f"/autodev/download/{path}"
                                 else:
                                     self.download_url = raw_url
-                                self.logs.append("✅ Build Complete! Ready to download.")
+                                self.logs.append("✅ Build Complete!")
                                 yield
                         except json.JSONDecodeError:
                             continue
+
         except Exception as e:
+            # Print the FULL error to the terminal window so we can debug
             self.logs.append(f"❌ Connection Failed: {str(e)}")
+            print(f"❌ CRITICAL ERROR: {e}")
         
         self.is_building = False
 
