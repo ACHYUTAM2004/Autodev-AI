@@ -1,10 +1,10 @@
 import os
 import shutil
-import json   
-from fastapi import FastAPI
+import json
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, FileResponse
 from app.core.schemas import BuildRequest
-from fastapi.responses import StreamingResponse
 from app.core.config import settings
 from app.graph.flow import app as graph_app 
 
@@ -14,20 +14,27 @@ api = FastAPI(
     version="1.0.0"
 )
 
-# --- ADD THIS BLOCK ---
+# --- 1. CORS CONFIGURATION (Render & Localhost Support) ---
 api.add_middleware(
     CORSMiddleware,
-    # Allow Frontend (3000) AND Reflex Backend (8000)
-    allow_origins=["http://localhost:3000", "http://localhost:8000"], 
+    allow_origins=[
+        "http://localhost:3000",        # Local Frontend
+        "http://localhost:8000",        # Reflex Default
+        "https://autodev-ai.onrender.com", # Production URL
+        "*"                             # Allow All (Simple fallback)
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# --- 2. HELPER FUNCTIONS ---
 def save_project_to_disk(project_name: str, files: dict) -> str:
     """Helper to write generated files to disk."""
-    project_path = os.path.join(settings.GENERATION_DIR, project_name)
+    # Ensure base directory exists
+    os.makedirs(settings.GENERATION_DIR, exist_ok=True)
     
+    project_path = os.path.join(settings.GENERATION_DIR, project_name)
     os.makedirs(project_path, exist_ok=True)
 
     for filepath, content in files.items():
@@ -38,6 +45,30 @@ def save_project_to_disk(project_name: str, files: dict) -> str:
             
     return project_path
 
+# --- 3. DOWNLOAD ENDPOINT (Zip & Serve) ---
+@api.get("/download/{project_name}")
+async def download_project(project_name: str):
+    """
+    Zips the generated project and returns it as a downloadable file.
+    """
+    project_path = os.path.join(settings.GENERATION_DIR, project_name)
+    zip_base_name = os.path.join(settings.GENERATION_DIR, project_name)
+
+    if not os.path.exists(project_path):
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    # Create ZIP file (shutil adds .zip extension automatically)
+    shutil.make_archive(zip_base_name, 'zip', project_path)
+    
+    final_zip_path = f"{zip_base_name}.zip"
+    
+    return FileResponse(
+        final_zip_path, 
+        media_type='application/zip', 
+        filename=f"{project_name}.zip"
+    )
+
+# --- 4. BUILD ENDPOINT (Streaming + State Merging) ---
 @api.post("/build")
 async def build_project(request: BuildRequest):
     print(f"Received build request for: {request.project_name}")
@@ -55,34 +86,32 @@ async def build_project(request: BuildRequest):
     async def event_generator():
         """Yields logs and the final result as a stream."""
         
-        # --- FIX 1: Initialize a persistent state container ---
+        # Initialize a persistent state container to avoid overwriting
         current_state = initial_state.copy()
         
         # 1. Stream updates from LangGraph
         async for event in graph_app.astream(initial_state):
             for node_name, state_update in event.items():
                 
-                # --- FIX 2: Merge the new data into current_state ---
-                # This ensures we don't lose 'files' when the 'tester' runs
+                # Merge new data (files, plans, test results) into current_state
                 current_state.update(state_update)
                 
                 # Yield a log message for the UI
                 log_msg = f"🤖 {node_name.upper()} Agent finished task."
                 yield json.dumps({"type": "log", "content": log_msg}) + "\n"
                 
-                # Optional: Yield more specific logs
+                # Yield specific logs
                 if node_name == "planner":
                      yield json.dumps({"type": "log", "content": f"📋 Plan generated with {len(state_update.get('plan', []))} steps."}) + "\n"
                 elif node_name == "tester":
-                    # Show test results in real-time
                     results = state_update.get("test_results", {})
                     status = "Passed" if results.get("tests_passed") else "Failed"
                     yield json.dumps({"type": "log", "content": f"🧪 Tests {status}"}) + "\n"
 
-        # 2. Save files (Once graph is done)
-        yield json.dumps({"type": "log", "content": "💾 Saving project to disk..."}) + "\n"
+        # 2. Save & Zip Logic
+        yield json.dumps({"type": "log", "content": "💾 Saving and Zipping project..."}) + "\n"
         
-        # --- FIX 3: Get files from the accumulated 'current_state' ---
+        # Get accumulated files
         files = current_state.get("files", {})
         
         if not files:
@@ -92,12 +121,14 @@ async def build_project(request: BuildRequest):
         project_path = save_project_to_disk(request.project_name, files)
 
         # 3. Create Summary & Download Link
+        # The frontend will parse this and fix the domain if needed
+        download_url = f"/autodev/download/{request.project_name}"
+
         summary = {
             "project_name": request.project_name,
             "tech_stack": current_state.get("tech_decisions", {}),
             "test_results": current_state.get("test_results", {}),
-            # This URL matches the download endpoint we added earlier
-            "download_url": f"http://localhost:8001/download/{request.project_name}" 
+            "download_url": download_url 
         }
         
         # Save Summary JSON inside the project folder
@@ -105,7 +136,7 @@ async def build_project(request: BuildRequest):
         with open(summary_path, "w", encoding="utf-8") as f:
             json.dump(summary, f, indent=2)
 
-        # Yield the final result object to the Frontend
+        # Send final result to UI
         yield json.dumps({"type": "result", "data": summary}) + "\n"
 
-    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")v

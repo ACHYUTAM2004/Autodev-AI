@@ -1,6 +1,7 @@
 import reflex as rx
 import httpx
 import json
+from app.main import api as autodevapi
 
 # --- 1. STATE (The Logic) ---
 class State(rx.State):
@@ -36,7 +37,7 @@ class State(rx.State):
                 # Use .stream() instead of .post()
                 async with client.stream(
                     "POST",
-                    "http://localhost:8001/build", 
+                    "/autodev/build",
                     json=payload, 
                     timeout=None # No timeout for streams
                 ) as response:
@@ -217,4 +218,5 @@ app = rx.App(
         radius="large"
     )
 )
+app.api.mount("/autodev", autodevapi)
 app.add_page(index)
