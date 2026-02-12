@@ -5,24 +5,36 @@ from app.agents.tester import tester_agent
 from app.agents.debugger import debugger_agent 
 from app.agents.architect import architect_agent
 
-
 def check_test_results(state: AgentState):
     """
-    Conditional logic:
-    - If tests passed, go to END.
-    - If tests failed, go to DEBUGGER.
-    - Safety: Stop after 3 debug attempts.
+    Smart Router Logic:
+    1. Tests Passed? -> END (Success)
+    2. Too many tries? -> END (Give up)
+    3. First Failure? -> CODER (Self-Correction)
+    4. Repeated Failure? -> DEBUGGER (Expert Fix)
     """
     results = state.get("test_results", {})
     iterations = state.get("debug_iterations", 0)
     
+    # 1. Success Check
     if results.get("tests_passed", False):
+        print("✅ Tests Passed! Finishing execution.")
         return "end"
     
+    # 2. Safety Limit Check
     if iterations >= 3:
-        print("--- MAX DEBUG ITERATIONS REACHED ---")
+        print("🛑 MAX DEBUG ITERATIONS REACHED. Stopping.")
         return "end"
+
+    # 3. Self-Correction Check (The New Logic)
+    # If this is the FIRST failure (iteration 0), send it back to the Coder.
+    if iterations == 0:
+        print("↩️ First failure detected. Routing back to CODER for Self-Correction.")
+        return "coder"
         
+    # 4. Expert Debugger Check
+    # If we already tried self-correction and failed, call the Debugger.
+    print(f"🚑 Repeated failure (Iter {iterations}). Routing to DEBUGGER.")
     return "debugger"
 
 def build_graph():
@@ -38,22 +50,24 @@ def build_graph():
     workflow.set_entry_point("architect")
     workflow.add_edge("architect", "coder")
     
-    # NEW FLOW: Coder -> Reviewer -> Tester
+    # Standard Flow: Coder -> Tester
     workflow.add_edge("coder", "tester")
     
-    # Conditional Edge from Tester
+    # Debugger Flow: Debugger -> Tester (Always verify fixes)
+    workflow.add_edge("debugger", "tester")
+
+    # Conditional Logic (The Router)
     workflow.add_conditional_edges(
         "tester",
         check_test_results,
         {
             "end": END,
+            "coder": "coder",       # <--- Added this path for Self-Correction
             "debugger": "debugger"
         }
     )
-    
-    # Loop back from Debugger to Tester
-    workflow.add_edge("debugger", "tester")
 
     return workflow.compile()
 
+# Compile the app
 app = build_graph()

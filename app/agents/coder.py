@@ -130,7 +130,7 @@ def coder_agent(state: AgentState):
     previous_error = test_results.get("output", "")
     
     # Prepare the Feedback String
-    if attempt > 0 and previous_error:
+    if previous_error and not test_results.get("tests_passed", True):
         logger.info(f"🧠 CODER is reflecting on failures (Attempt {attempt})...")
         feedback_str = f"""
         ⚠️ **CRITICAL: FIX PREVIOUS ERRORS** ⚠️
