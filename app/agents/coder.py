@@ -117,7 +117,7 @@ def parse_xml_output(text: Union[str, List]) -> dict:
     return files
 
 # ---------------------------------------------------------------------
-# 3. AGENT FUNCTION (With Self-Correction Logic)
+# 3. AGENT FUNCTION (With Loop Fix)
 # ---------------------------------------------------------------------
 def coder_agent(state: AgentState):
     user_req = state["user_input"]
@@ -128,9 +128,12 @@ def coder_agent(state: AgentState):
     attempt = state.get("debug_iterations", 0)
     test_results = state.get("test_results", {})
     previous_error = test_results.get("output", "")
-    
-    # Prepare the Feedback String
-    if previous_error and not test_results.get("tests_passed", True):
+    tests_passed = test_results.get("tests_passed", True)
+
+    # Determine if we are in "Fix Mode"
+    is_fixing = False
+    if previous_error and not tests_passed:
+        is_fixing = True
         logger.info(f"🧠 CODER is reflecting on failures (Attempt {attempt})...")
         feedback_str = f"""
         ⚠️ **CRITICAL: FIX PREVIOUS ERRORS** ⚠️
@@ -176,7 +179,16 @@ def coder_agent(state: AgentState):
             logger.warning(raw[:500])
         
         logger.info(f"Coder generated {len(files_dict)} files.")
-        return {"files": files_dict}
+
+        # --- CRITICAL FIX ---
+        # If we were fixing errors, increment the counter so the Router knows 
+        # to send it to the Debugger if it fails again.
+        increment = 1 if is_fixing else 0
+        
+        return {
+            "files": files_dict,
+            "debug_iterations": state.get("debug_iterations", 0) + increment
+        }
         
     except Exception as e:
         logger.error(f"Error in Coder Agent: {e}")
