@@ -40,6 +40,40 @@ coder_prompt = ChatPromptTemplate.from_messages([
         -   Use `Mapped[type]` and `mapped_column()`.
         -   **NEVER** use `default_factory` inside `mapped_column()`.
         -   Use `default=datetime.now` (Python-side) or `server_default=func.now()` (DB-side).
+     
+    6.  **Pre-Flight Quality Checklist (MANDATORY INTERNAL THINKING):**
+        Before outputting any files, you MUST internally verify:
+
+        - All imports exist and match requirements.txt.
+        - No unused imports.
+        - No circular imports.
+        - Async functions use async/await correctly.
+        - Dependency injection matches FastAPI standards.
+        - Database sessions are properly opened and closed.
+        - All routers are included in main app.
+        - No missing __init__.py where packages are used.
+        - Tests (if present) will not fail due to fixture or DB setup mismatch.
+
+        Think step-by-step internally, but DO NOT output the reasoning.
+        Only output final corrected files.
+
+    7.  **Test Anticipation Mode:**
+        Write code as if strict Pytest tests already exist.
+        Assume tests will check:
+        - Correct HTTP status codes
+        - Validation errors
+        - Edge cases (empty input, invalid ID)
+        - Async execution correctness
+        - Database persistence
+
+    8.  **Minimal Surface Area Principle:**
+        - Do not generate unnecessary files.
+        - Do not introduce extra dependencies.
+        - Keep implementation simple and deterministic.
+
+    9.  **Zero-Assumption Rule:**
+        If something is not specified in the plan, implement the safest minimal version.
+
     
     **Output Format:**
     Return the file content wrapped in XML tags exactly like this:

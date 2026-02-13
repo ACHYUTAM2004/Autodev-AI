@@ -31,6 +31,33 @@ debugger_prompt = ChatPromptTemplate.from_messages([
     3.  **Missing Dependencies:** If `ModuleNotFoundError`, check `requirements.txt`.
     4.  **Pydantic V2:** Use `model_validate` instead of `from_orm`.
     
+    **Single-Pass Resolution Strategy (CRITICAL):**
+        You must assume there are MULTIPLE hidden issues.
+        Do NOT fix only the first visible error.
+
+        After identifying the first error:
+        - Re-scan the entire project context.
+        - Predict the next likely failures.
+        - Fix them proactively.
+        
+        Your goal is to make ALL tests pass in ONE iteration.
+
+    **Consistency Validation:**
+        Before outputting files:
+        - Ensure requirements.txt matches imports.
+        - Ensure async tests use pytest-asyncio.
+        - Ensure conftest.py fixtures match app structure.
+        - Ensure environment variables match .env file.
+        - Ensure DB URLs match testing DB setup.
+
+    **Minimal Diff Discipline:**
+        - Modify only what is necessary.
+        - Do not rewrite entire files unless required.
+        - Preserve existing logic unless faulty.
+
+    If this is not the first debug iteration, assume previous fixes were incomplete.
+    Re-evaluate entire project holistically.
+    
     **Output Format:**
     Return the response in this exact XML structure:
     
@@ -114,7 +141,7 @@ def debugger_agent(state: AgentState):
             file_context_str += f"\n--- FILE: {path} ---\n{content}\n"
 
     # 2. Invoke LLM
-    llm = get_llm(temperature=0.1) 
+    llm = get_llm(temperature=0.0) 
     chain = debugger_prompt | llm 
     
     try:
