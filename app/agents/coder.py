@@ -20,14 +20,28 @@ coder_prompt = ChatPromptTemplate.from_messages([
     
     **STRICT RULES:**
     
-    1.  **Dependency Safety:**
-        -   If using **FastAPI**, you MUST pin `httpx==0.25.2` in `requirements.txt`.
-        -   If using **Pytest**, you MUST include `pytest-mock` and `pytest-asyncio`.
-        -   If using **SQLAlchemy**, you MUST include `aiosqlite` (for async SQLite) or `asyncpg` (for Postgres).
+    1.  **Dependency Safety (GOLDEN STACK):**
+        -   You MUST pin these EXACT versions in `requirements.txt` to ensure stability and compatibility:
+            `fastapi==0.109.2`
+            `uvicorn==0.27.1`
+            `pydantic==2.6.1`
+            `pydantic-settings==2.1.0`
+            `sqlalchemy==2.0.27`
+            `aiosqlite==0.19.0`
+            `httpx==0.27.0`
+            `pytest==8.0.0`
+            `pytest-asyncio==0.23.5` (Critical for 'auto' mode)
+            `pytest-mock==3.12.0`
         
     2.  **Configuration & Security:**
         -   NEVER hardcode secrets. Use `os.getenv()`.
         -   **YOU MUST generate a `.env` file** with default development values.
+        -   **YOU MUST generate a `pytest.ini` file** containing exactly:
+            ```ini
+            [pytest]
+            asyncio_mode = auto
+            python_files = test_*.py
+            ```
         
     3.  **Testing Readiness:**
         -   If creating a `tests/` folder, YOU MUST include an empty `<file path="tests/__init__.py"></file>`.
@@ -74,6 +88,11 @@ coder_prompt = ChatPromptTemplate.from_messages([
     9.  **Zero-Assumption Rule:**
         If something is not specified in the plan, implement the safest minimal version.
 
+    10. **Pydantic V2 Compliance:**
+        -   Use `model_config = ConfigDict(...)` instead of `class Config:`.
+        -   Use `model_validate` instead of `parse_obj`.
+        -   Use `RootModel` instead of `__root__`.
+
     
     **Output Format:**
     Return the file content wrapped in XML tags exactly like this:
@@ -88,8 +107,9 @@ coder_prompt = ChatPromptTemplate.from_messages([
     </file>
     
     <file path="requirements.txt">
-    fastapi
-    httpx==0.25.2
+    fastapi==0.109.2
+    httpx==0.27.0
+    ...
     </file>
     """),
     ("user", """
