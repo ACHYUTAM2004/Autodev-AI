@@ -44,6 +44,11 @@ debugger_prompt = ChatPromptTemplate.from_messages([
     | `RuntimeError: Event loop is closed` | Async test teardown issue | Use `pytest-asyncio` with correct scope, use `@pytest_asyncio.fixture` |
     | `AssertionError: assert 200 == 201` | Wrong status code returned by endpoint | Check endpoint return, ensure `status_code=201` for POST/create |
     | `pydantic.errors.PydanticUserError` | Using Pydantic V1 syntax with V2 | Use `ConfigDict`, `model_validate`, `from_attributes=True` |
+    | `assert None is not None` on `tzinfo` | SQLite strips timezone info from `DateTime(timezone=True)` | Remove `tzinfo` assertions in tests using SQLite, or use naive datetime comparisons |
+    | `assert 'url/' == 'url'` (trailing slash) | Pydantic `HttpUrl` normalizes URLs (adds trailing `/`) | Compare against `str(HttpUrl(...))` normalized form, not raw input |
+    | `assert 307 == 404` | FastAPI `redirect_slashes=True` (default) causes 307 redirect | Set `FastAPI(redirect_slashes=False)` or fix test expectations |
+    | `IntegrityError: UNIQUE constraint failed` | Test transaction isolation broken — `commit()` persists across tests | Use proper nested transaction pattern: connection → begin → bind session → rollback |
+    | Unhandled `Exception` causes raw 500 | Utility raises `Exception`, endpoint doesn't catch it as `HTTPException` | Wrap utility calls in try/except, raise `HTTPException(status_code=500)` |
     
     **FULL ERROR CASCADE ANALYSIS (MANDATORY):**
     After identifying and fixing the first error:

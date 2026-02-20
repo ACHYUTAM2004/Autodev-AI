@@ -193,15 +193,22 @@ def setup_and_run_tests(project_name: str, files: dict, framework: str, tech_sta
         logs.append(out)
         if not ok: return False, "\n".join(logs)
 
-        # C. Install Framework & Tools (Check if installed to save time)
-        # We blindly run this because 'pip install' is fast if already satisfied, 
-        # but you could optimize further by checking 'pip list'.
-        if framework and framework.lower() != "unittest":
-            logs.append(f"--- Ensuring {framework} is installed ---")
-            run_command([python_exe, "-m", "pip", "install", framework], project_path)
+        # C. Install Framework & Tools (ONLY on first run, like venv)
+        tools_marker = os.path.join(venv_dir, ".tools_installed")
+        if not os.path.exists(tools_marker):
+            if framework and framework.lower() != "unittest":
+                logs.append(f"--- Installing {framework} (First Run Only) ---")
+                run_command([python_exe, "-m", "pip", "install", framework], project_path)
+                
+                if "fastapi" in tech_stack.get("framework", "").lower():
+                    logs.append("--- Installing httpx (First Run Only) ---")
+                    run_command([python_exe, "-m", "pip", "install", "httpx"], project_path)
             
-            if "fastapi" in tech_stack.get("framework", "").lower():
-                 run_command([python_exe, "-m", "pip", "install", "httpx"], project_path)
+            # Mark tools as installed so we skip this on debug iterations
+            with open(tools_marker, "w") as f:
+                f.write("done")
+        else:
+            logs.append("--- Framework & tools already installed, skipping ---")
         # --- OPTIMIZATION END ---
 
         # D. Run Tests

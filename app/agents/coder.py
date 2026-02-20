@@ -118,6 +118,27 @@ coder_prompt = ChatPromptTemplate.from_messages([
            (e.g., `sqlite+aiosqlite:///./test.db`) and create/drop tables per session.
         j) **Missing `python-dotenv`:** If using `.env` files with Pydantic Settings, 
            `python-dotenv` MUST be in `requirements.txt`.
+        k) **SQLite drops timezone info:** `DateTime(timezone=True)` works in PostgreSQL but 
+           SQLite silently strips `tzinfo`. In tests using SQLite, NEVER assert 
+           `obj.created_at.tzinfo is not None`. Use naive datetime comparisons or 
+           replace `created_at` with `server_default=func.now()` without timezone.
+        l) **Pydantic `HttpUrl` normalization:** Pydantic's `HttpUrl` adds a trailing slash 
+           (e.g., `https://google.com` → `https://google.com/`). Store `str(url)` and 
+           compare against the normalized form, not the raw input.
+        m) **FastAPI `redirect_slashes`:** By default, FastAPI redirects `/path/` → `/path` 
+           with 307. If tests expect 404 for trailing-slash paths, set 
+           `FastAPI(redirect_slashes=False)`.
+        n) **Test transaction isolation:** In async test conftest, each test MUST run inside 
+           an isolated transaction that is rolled back after. Use the pattern: acquire 
+           connection → begin transaction → bind AsyncSession to connection → rollback at end.
+           Otherwise `db.commit()` in app code persists across tests causing IntegrityErrors.
+        o) **Unhandled exceptions → HTTPException:** If a utility function raises a plain 
+           `Exception`, the endpoint MUST catch it and convert to 
+           `HTTPException(status_code=500, detail="...")`. Uncaught exceptions cause 
+           inconsistent 500 responses.
+        p) **Pydantic V2 error messages differ:** Do not hardcode exact Pydantic validation 
+           error strings in tests. Check for `status_code == 422` and that `detail` is a 
+           list, but do NOT assert exact message text.
 
     12. **CROSS-FILE CONSISTENCY VALIDATION (MANDATORY):**
         Before outputting, mentally trace these dependency chains:
