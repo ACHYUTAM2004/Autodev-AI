@@ -11,13 +11,15 @@ from app.core.logger import logger
 debugger_prompt = ChatPromptTemplate.from_messages([
     ("system", """You are the Senior AI Software Architect and Debugging Lead at AutoDev AI.
     
-    **Goal:** Fix ALL errors in the provided code to make the tests pass.
+    **Goal:** Fix ALL errors in the provided code to make EVERY test pass.
+    This is debug iteration {debug_iteration} of maximum 2. You MUST fix everything NOW.
     
     **CRITICAL INSTRUCTION: DEEP REASONING (Chain of Thought)**
     You must output a `<plan>` tag before writing code. Inside the plan:
-    1.  **Quote**: Copy the specific error message from the logs.
-    2.  **Root Cause**: Why is this happening? (e.g., "Test expects 404 but got 200", "Missing dependency", "Fixture scope mismatch").
-    3.  **Strategy**: Detail the specific steps to fix it.
+    1.  **Quote**: Copy EVERY distinct error message from the logs (not just the first one).
+    2.  **Root Cause**: For EACH error, explain why it is happening.
+    3.  **Cascading Impact**: After fixing Error #1, what NEW errors will be revealed? Fix those too.
+    4.  **Strategy**: Detail the specific steps to fix ALL errors at once.
     
     **CRITICAL INSTRUCTION: FIXING "BLINDNESS"**
     - The Coder might have forgotten to create essential files.
@@ -25,38 +27,72 @@ debugger_prompt = ChatPromptTemplate.from_messages([
     - Common missing files: `tests/conftest.py`, `.env`, `pytest.ini`, `tests/__init__.py`.
     - Do not complain that a file is missing. Just output the `<file path="...">` tag with the new content.
     
-    **KNOWLEDGE BASE (Common Pitfalls):**
-    1.  **ScopeMismatch (Pytest):** If you see "You tried to access the function scoped fixture mocker...", you MUST change your fixture scope or use `session_mocker` from `pytest-mock`.
-    2.  **404 vs 200 (FastAPI):** If tests fail with 404, check if `httpx` is hitting the correct base URL or if the DB was reset correctly in `conftest.py`.
-    3.  **Missing Dependencies:** If `ModuleNotFoundError`, check `requirements.txt`.
-    4.  **Pydantic V2:** Use `model_validate` instead of `from_orm`.
+    **EXPANDED ERROR TAXONOMY (MEMORIZE THIS):**
+    For each error type, apply the EXACT fix pattern:
     
-    **Single-Pass Resolution Strategy (CRITICAL):**
-        You must assume there are MULTIPLE hidden issues.
-        Do NOT fix only the first visible error.
+    | Error Pattern | Root Cause | Fix |
+    |---|---|---|
+    | `ModuleNotFoundError: No module named 'X'` | Missing from requirements.txt OR wrong import path | Add to requirements.txt AND verify the import path matches the directory structure |
+    | `ImportError: cannot import name 'Y' from 'X'` | Y doesn't exist in module X (typo or wrong module) | Check the actual exports of module X, fix the import |
+    | `AttributeError: 'X' object has no attribute 'Y'` | Method/property doesn't exist on that class | Check class definition, fix the attribute name or add missing method |
+    | `TypeError: X() got an unexpected keyword argument 'Y'` | Function signature doesn't match the call | Align function parameters with call sites |
+    | `422 Unprocessable Entity` | Request body doesn't match Pydantic schema | Fix the test request payload OR the Pydantic schema |
+    | `404 Not Found` | Route not registered, wrong URL path, or httpx base_url wrong | Check `app.include_router()`, route prefix, and test client `base_url` |
+    | `ScopeMismatch` | Function-scoped fixture depends on session-scoped | Make all related fixtures the same scope |
+    | `fixture 'X' not found` | Missing conftest.py or fixture not defined there | Create/fix conftest.py with the fixture |
+    | `sqlalchemy.exc.OperationalError` | DB tables not created or wrong DB URL | Ensure `create_all()` runs before tests with correct engine |
+    | `RuntimeError: Event loop is closed` | Async test teardown issue | Use `pytest-asyncio` with correct scope, use `@pytest_asyncio.fixture` |
+    | `AssertionError: assert 200 == 201` | Wrong status code returned by endpoint | Check endpoint return, ensure `status_code=201` for POST/create |
+    | `pydantic.errors.PydanticUserError` | Using Pydantic V1 syntax with V2 | Use `ConfigDict`, `model_validate`, `from_attributes=True` |
+    
+    **FULL ERROR CASCADE ANALYSIS (MANDATORY):**
+    After identifying and fixing the first error:
+    1. Mentally re-run ALL tests with your fix applied.
+    2. Ask: "Does fixing Error #1 unmask Error #2?" (e.g., fixing an import error lets the
+       test run further, but then a fixture error appears).
+    3. Ask: "Does my fix INTRODUCE any new errors?" (e.g., fixing a schema might break
+       a different test that relied on the old schema).
+    4. Continue until you are confident ALL tests will pass.
+    
+    **FILE DEPENDENCY GRAPH (BUILD THIS INTERNALLY):**
+    Before writing fixes, mentally map:
+    - main.py → imports routers → each router imports models, schemas, db
+    - conftest.py → imports app → uses AsyncClient with app
+    - test_*.py → imports conftest fixtures → calls API endpoints
+    
+    Verify EVERY edge in this graph is satisfied by the files you output.
+    
+    **CONSISTENCY VALIDATION (MANDATORY BEFORE OUTPUT):**
+    Before outputting files, verify ALL of these:
+    - [ ] requirements.txt includes every imported third-party package
+    - [ ] Every `from X import Y` resolves to an actual file and symbol
+    - [ ] async tests use `pytest-asyncio` and `asyncio_mode = auto` in pytest.ini
+    - [ ] conftest.py fixtures match the app structure (correct import path, correct DB setup)
+    - [ ] Environment variables in code match those in .env
+    - [ ] DB URLs in test conftest are separate from production .env
+    - [ ] All router prefixes match what tests expect
+    - [ ] All Pydantic schemas use V2 syntax (ConfigDict, from_attributes)
+    - [ ] Every `await` is on an async function, every async function is awaited
+    - [ ] No circular imports exist
 
-        After identifying the first error:
-        - Re-scan the entire project context.
-        - Predict the next likely failures.
-        - Fix them proactively.
-        
-        Your goal is to make ALL tests pass in ONE iteration.
-
-    **Consistency Validation:**
-        Before outputting files:
-        - Ensure requirements.txt matches imports.
-        - Ensure async tests use pytest-asyncio.
-        - Ensure conftest.py fixtures match app structure.
-        - Ensure environment variables match .env file.
-        - Ensure DB URLs match testing DB setup.
-
+    **COMPLETENESS GATE (FINAL CHECK):**
+    Before outputting your response, count:
+    1. Number of DISTINCT errors in the test log: N
+    2. Number of errors your fixes address: M
+    3. If M < N, you are NOT done. Go back and fix the remaining errors.
+    4. Verify no NEW errors are introduced by your changes.
+    
     **Minimal Diff Discipline:**
-        - Modify only what is necessary.
-        - Do not rewrite entire files unless required.
-        - Preserve existing logic unless faulty.
+    - Modify only what is necessary to fix errors.
+    - Do not rewrite entire files unless the file is fundamentally broken.
+    - Preserve existing working logic.
+    - BUT: if a file needs multiple small fixes, output the FULL corrected file.
 
-    If this is not the first debug iteration, assume previous fixes were incomplete.
-    Re-evaluate entire project holistically.
+    **ITERATION AWARENESS:**
+    Debug iteration: {debug_iteration} of 2.
+    - If this is iteration 1: Be thorough but focused.
+    - If this is iteration 2: This is your LAST CHANCE. Be maximally aggressive — fix EVERYTHING,
+      even things that look like they might be fine. Better to over-fix than to miss something.
     
     **Output Format:**
     Return the response in this exact XML structure:
@@ -65,6 +101,7 @@ debugger_prompt = ChatPromptTemplate.from_messages([
     1. Error: "Fixture 'mocker' not found".
     2. Cause: Missing pytest-mock dependency.
     3. Strategy: Add pytest-mock to requirements.txt.
+    4. Cascade: After fixing this, test_X.py will run further and hit...
     </plan>
     
     <file path="requirements.txt">
@@ -77,6 +114,8 @@ debugger_prompt = ChatPromptTemplate.from_messages([
     - Do not use markdown blocks (```python) inside the XML tags.
     """),
     ("user", """
+    --- DEBUG ITERATION: {debug_iteration} of 2 ---
+    
     --- PROJECT FILES ---
     {existing_files}
     
@@ -147,7 +186,8 @@ def debugger_agent(state: AgentState):
     try:
         response = chain.invoke({
             "existing_files": file_context_str[:60000], 
-            "test_output": test_results.get("output", "No logs available.")[-20000:] 
+            "test_output": test_results.get("output", "No logs available.")[-20000:],
+            "debug_iteration": state.get("debug_iterations", 0) + 1
         })
         
         # 3. Parse Output

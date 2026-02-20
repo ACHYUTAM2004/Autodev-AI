@@ -25,3 +25,5 @@ logs/
 # Reflex / Frontend
 frontend/.web/
 frontend/__pycache__/
+
+debug_venv.py
