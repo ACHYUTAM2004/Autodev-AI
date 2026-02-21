@@ -4,16 +4,67 @@ import json
 import os
 import logging
 from fastapi import FastAPI
-from fastapi.staticfiles import StaticFiles # <--- New Import
+from fastapi.staticfiles import StaticFiles
 
 # Import your backend API
 from app.main import api as autodevapi
 
-# Setup Logging so we can SEE what is happening on Render
+# Setup Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("autodev_deploy")
 
-# --- 1. STATE (The Logic) ---
+# --- 1. STYLES & ANIMATIONS ---
+# Custom CSS for premium effects
+STYLE_CSS = """
+@keyframes mesh-gradient {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+@keyframes pulse-glow {
+    0% { box-shadow: 0 0 5px rgba(255, 0, 100, 0.2); }
+    50% { box-shadow: 0 0 20px rgba(255, 0, 100, 0.4); }
+    100% { box-shadow: 0 0 5px rgba(255, 0, 100, 0.2); }
+}
+
+@keyframes scanline {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100%); }
+}
+
+.glass-card {
+    backdrop-filter: blur(25px) saturate(180%);
+    -webkit-backdrop-filter: blur(25px) saturate(180%);
+    background-color: rgba(17, 17, 17, 0.7);
+    border: 1px solid rgba(255, 255, 255, 0.125);
+}
+
+.mesh-bg {
+    background: linear-gradient(-45deg, #0f0c29, #302b63, #24243e, #1e3a8a, #3b0764);
+    background-size: 400% 400%;
+    animation: mesh-gradient 15s ease infinite;
+}
+
+.terminal-scroll::-webkit-scrollbar {
+    width: 6px;
+}
+.terminal-scroll::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.1);
+}
+.terminal-scroll::-webkit-scrollbar-thumb {
+    background: rgba(255,255,255,0.1);
+    border-radius: 10px;
+}
+
+.button-glow:hover {
+    box-shadow: 0 0 20px rgba(255, 0, 100, 0.6);
+    transform: translateY(-2px);
+    transition: all 0.3s ease;
+}
+"""
+
+# --- 2. STATE ---
 class State(rx.State):
     """The app state."""
     project_name: str = ""
@@ -26,7 +77,6 @@ class State(rx.State):
     logs: list[str] = []
     download_url: str = ""
 
-    # --- FIX DEPRECATION WARNINGS (Explicit Setters) ---
     def set_project_name(self, value: str):
         self.project_name = value
 
@@ -35,7 +85,6 @@ class State(rx.State):
 
     def set_tech_stack_input(self, value: str):
         self.tech_stack_input = value
-    # ---------------------------------------------------
 
     async def start_build(self):
         """Call the AutoDev API with Streaming."""
@@ -43,8 +92,8 @@ class State(rx.State):
             return
 
         self.is_building = True
-        self.logs = [f"🚀 Starting build for '{self.project_name}'..."]
-        self.download_url = "" # Reset download link
+        self.logs = [f"🚀 Initializing build sequence for '{self.project_name}'..."]
+        self.download_url = ""
         yield 
 
         payload = {
@@ -55,23 +104,12 @@ class State(rx.State):
             }
         }
 
-        # --- THE FIX: Smart URL Detection ---
-        # 1. Try to get the real URL from the environment (Render sets RENDER_EXTERNAL_URL)
         domain = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000")
-        
-        # 2. Add logging so we can see what URL it is trying to hit
-        print(f"🔗 Connecting to Backend at: {domain}")
-        self.logs.append(f"🔗 Connecting to: {domain}...")
-        yield
+        logger.info(f"🔗 Connecting to Backend at: {domain}")
 
         try:
             async with httpx.AsyncClient(base_url=domain, timeout=None) as client:
-                async with client.stream(
-                    "POST",
-                    "/autodev/build", 
-                    json=payload
-                ) as response:
-                    
+                async with client.stream("POST", "/autodev/build", json=payload) as response:
                     if response.status_code != 200:
                         self.logs.append(f"❌ Server Error: {response.status_code}")
                         yield
@@ -92,33 +130,39 @@ class State(rx.State):
                                     self.download_url = f"/autodev/download/{path}"
                                 else:
                                     self.download_url = raw_url
-                                self.logs.append("✅ Build Complete!")
+                                self.logs.append("✨ Build Sequence Complete!")
                                 yield
                         except json.JSONDecodeError:
                             continue
 
         except Exception as e:
-            # Print the FULL error to the terminal window so we can debug
-            self.logs.append(f"❌ Connection Failed: {str(e)}")
-            print(f"❌ CRITICAL ERROR: {e}")
+            self.logs.append(f"❌ Critical Failure: {str(e)}")
+            logger.error(f"❌ CRITICAL ERROR: {e}")
         
         self.is_building = False
 
-# --- 2. UI COMPONENTS (Unchanged) ---
+# --- 3. UI COMPONENTS ---
+
 def terminal_window():
     return rx.cond(
         State.logs,
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.text("Build Logs", font_weight="bold", color="white"),
+                    rx.circle(size="3", bg="#ff5f56"),
+                    rx.circle(size="3", bg="#ffbd2e"),
+                    rx.circle(size="3", bg="#27c93f"),
+                    rx.text("Build Console", font_weight="600", color="gray", size="2", margin_left="1em"),
                     rx.spacer(),
                     rx.badge(
-                        rx.cond(State.is_building, "Building...", "Idle"),
-                        color_scheme=rx.cond(State.is_building, "yellow", "gray"),
-                        variant="soft"
+                        rx.cond(State.is_building, "RUNNING", "STABLE"),
+                        color_scheme=rx.cond(State.is_building, "yellow", "green"),
+                        variant="soft",
+                        padding_x="1em",
+                        radius="full",
                     ),
                     width="100%",
+                    padding_bottom="1em",
                 ),
                 rx.scroll_area(
                     rx.vstack(
@@ -126,114 +170,125 @@ def terminal_window():
                             State.logs,
                             lambda log: rx.text(
                                 log,
-                                font_family="Fira Code, monospace",
-                                font_size="0.85em",
-                                color="#9AE6B4",
+                                font_family="'JetBrains Mono', monospace",
+                                font_size="0.8em",
+                                color="#adbac7",
+                                line_height="1.5",
                             ),
                         ),
                         align_items="start",
-                        spacing="2",
-                        padding="2",
+                        spacing="1",
                     ),
-                    height="240px",
-                    type="always",
+                    height="200px",
+                    className="terminal-scroll",
                 ),
-                spacing="3",
+                spacing="0",
             ),
-            bg="#111",
-            border_radius="xl",
-            border="1px solid rgba(255,255,255,0.08)",
-            padding="1.5em",
+            bg="rgba(13, 17, 23, 0.95)",
+            border_radius="12px",
+            border="1px solid rgba(255,255,255,0.05)",
+            padding="1.2em",
             width="100%",
             margin_top="2em",
+            box_shadow="0 8px 32px rgba(0,0,0,0.4)",
         ),
     )
 
+def input_field(label, placeholder, value, on_change, icon, **kwargs):
+    return rx.vstack(
+        rx.hstack(
+            rx.icon(icon, size=14, color="gray"),
+            rx.text(label, size="2", font_weight="500", color="gray"),
+            spacing="2",
+            align_items="center",
+        ),
+        rx.input(
+            placeholder=placeholder,
+            value=value,
+            on_change=on_change,
+            width="100%",
+            radius="large",
+            size="3",
+            variant="surface",
+            background="rgba(255,255,255,0.03)",
+            border="1px solid rgba(255,255,255,0.1)",
+            _focus={"border": "1px solid rgba(255,0,100,0.5)", "box_shadow": "0 0 10px rgba(255,0,100,0.1)"},
+            **kwargs,
+        ),
+        spacing="2",
+        width="100%",
+    )
 
 def main_card():
     return rx.box(
         rx.vstack(
             # Header
             rx.vstack(
-                rx.heading("AutoDev AI", size="9", weight="bold"),
+                rx.heading("AutoDev AI", size="9", weight="bold", background_image="linear-gradient(90deg, #ff006e, #8338ec)", background_clip="text", color="transparent"),
                 rx.text(
-                    "Your Autonomous Backend Engineer",
-                    size="3",
-                    color="gray"
+                    "Your Autonomous Backend Architect",
+                    size="4",
+                    color="#adbac7",
+                    weight="medium",
                 ),
-                spacing="1",
+                spacing="2",
                 align_items="center"
             ),
 
-            rx.divider(),
+            rx.divider(background="rgba(255,255,255,0.05)", margin_y="1em"),
 
             # Form Section
             rx.vstack(
-                rx.text("Project Configuration", font_weight="bold", size="4"),
-
+                input_field("Project Name", "e.g. cloud-nexus-api", State.project_name, State.set_project_name, "folder-plus"),
+                input_field("Tech Preferences", "e.g. Go, Gin, Redis", State.tech_stack_input, State.set_tech_stack_input, "cpu"),
+                
                 rx.vstack(
-                    rx.text("Project Name", size="2", color="gray"),
-                    rx.input(
-                        placeholder="e.g. super-saas-platform",
-                        value=State.project_name,
-                        on_change=State.set_project_name,
-                        width="100%",
-                        radius="large",
-                        size="3"
+                    rx.hstack(
+                        rx.icon("file-text", size=14, color="gray"),
+                        rx.text("System Requirements", size="2", font_weight="500", color="gray"),
+                        spacing="2",
+                        align_items="center",
                     ),
-                    spacing="1",
-                    width="100%",
-                ),
-
-                rx.vstack(
-                    rx.text("Tech Stack Preferences (Optional)", size="2", color="gray"),
-                    rx.input(
-                        placeholder="e.g. Python, FastAPI, PostgreSQL",
-                        value=State.tech_stack_input,
-                        on_change=State.set_tech_stack_input,
-                        width="100%",
-                        radius="large",
-                        size="3"
-                    ),
-                    spacing="1",
-                    width="100%",
-                ),
-
-                rx.vstack(
-                    rx.text("What should I build?", size="2", color="gray"),
                     rx.text_area(
-                        placeholder="Describe your features, APIs, authentication, database models...",
+                        placeholder="What should I build? E.g. A multi-tenant SaaS with Stripe integration...",
                         value=State.description,
                         on_change=State.set_description,
-                        min_height="160px",
+                        min_height="140px",
                         width="100%",
                         radius="large",
-                        size="3"
+                        size="3",
+                        variant="surface",
+                        background="rgba(255,255,255,0.03)",
+                        border="1px solid rgba(255,255,255,0.1)",
+                        _focus={"border": "1px solid rgba(255,0,100,0.5)"},
                     ),
-                    spacing="1",
+                    spacing="2",
                     width="100%",
                 ),
 
-                spacing="4",
+                spacing="5",
                 width="100%",
             ),
 
             # CTA Button
             rx.button(
                 rx.hstack(
-                    rx.icon("sparkles"),
-                    rx.text("Generate Backend"),
+                    rx.icon("sparkles", size=20),
+                    rx.text("Synthesize System", weight="bold"),
+                    spacing="3",
                 ),
                 on_click=State.start_build,
                 loading=State.is_building,
                 size="4",
                 width="100%",
-                radius="large",
+                radius="xl",
                 variant="solid",
                 color_scheme="ruby",
-                margin_top="1em",
-                box_shadow="0 4px 20px rgba(255,0,100,0.3)",
-                cursor="pointer"
+                margin_top="1.5em",
+                className="button-glow",
+                cursor="pointer",
+                background="linear-gradient(90deg, #ff006e, #8338ec)",
+                transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
             ),
 
             # Download Section
@@ -243,15 +298,17 @@ def main_card():
                     rx.link(
                         rx.button(
                             rx.hstack(
-                                rx.icon("download"),
-                                rx.text("Download Source Code"),
+                                rx.icon("download", size=18),
+                                rx.text("Download Source Code", weight="bold"),
                             ),
                             size="4",
                             width="100%",
                             variant="surface",
                             color_scheme="green",
-                            radius="large",
+                            radius="xl",
                             cursor="pointer",
+                            background="rgba(40, 167, 69, 0.1)",
+                            border="1px solid rgba(40, 167, 69, 0.3)",
                         ),
                         href=State.download_url,
                         is_external=True,
@@ -267,66 +324,59 @@ def main_card():
             spacing="6",
             width="100%",
         ),
-        width=["100%", "720px"],
-        padding="3em",
-        border_radius="2xl",
-        background="rgba(20, 20, 20, 0.85)",
-        backdrop_filter="blur(20px)",
-        border="1px solid rgba(255,255,255,0.08)",
-        box_shadow="0 10px 40px rgba(0,0,0,0.5)",
+        width=["100%", "680px"],
+        padding="3.5em",
+        border_radius="32px",
+        className="glass-card",
+        box_shadow="0 25px 50px -12px rgba(0, 0, 0, 0.5)",
     )
-
 
 def index():
     return rx.center(
+        rx.el.style(STYLE_CSS),
         main_card(),
         width="100%",
         min_height="100vh",
         padding="2em",
-        background="""
-        radial-gradient(circle at 20% 20%, #3b0764 0%, transparent 40%),
-        radial-gradient(circle at 80% 80%, #1e3a8a 0%, transparent 40%),
-        #000000
-        """
+        className="mesh-bg",
+        font_family="'Outfit', sans-serif",
     )
 
-
-# --- 3. APP DEFINITION (Recursive Search) ---
+# --- 4. APP DEFINITION ---
 def mount_autodev(app: FastAPI) -> FastAPI:
     app.mount("/autodev", autodevapi)
 
-    # 1. SEARCH for the Build Directory
     build_dir = None
     search_start_dirs = ["public", ".web", "frontend_build"]
     
-    logger.warning(f"🔍 STARTING SEARCH FOR INDEX.HTML. CWD: {os.getcwd()}")
+    logger.info(f"🔍 Searching for build artifacts in {os.getcwd()}")
 
-    # Helper to walk through folders
     for start_dir in search_start_dirs:
-        if not os.path.exists(start_dir):
-            logger.warning(f"⚠️  Folder not found: {start_dir}")
-            continue
-            
-        # Walk through the directory tree
+        if not os.path.exists(start_dir): continue
         for root, dirs, files in os.walk(start_dir):
             if "index.html" in files:
                 build_dir = root
-                logger.warning(f"✅ FOUND index.html in: {build_dir}")
                 break
-        if build_dir:
-            break
+        if build_dir: break
 
-    # 2. MOUNT if found
     if build_dir:
-        logger.warning(f"🚀 MOUNTING STATIC FILES FROM: {build_dir}")
+        logger.info(f"🚀 Mounting static files from: {build_dir}")
         app.mount("/", StaticFiles(directory=build_dir, html=True), name="static")
     else:
-        logger.error("❌ CRITICAL: Could not find 'index.html' anywhere. Site will be blank.")
+        logger.error("❌ Critical: index.html not found.")
 
     return app
 
 app = rx.App(
-    theme=rx.theme(appearance="dark", accent_color="ruby", radius="large"),
-    api_transformer=mount_autodev
+    theme=rx.theme(
+        appearance="dark", 
+        accent_color="ruby", 
+        radius="large",
+        panel_background="translucent"
+    ),
+    api_transformer=mount_autodev,
+    head_components=[
+        rx.el.link(rel="stylesheet", href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono&display=swap"),
+    ],
 )
-app.add_page(index)
+app.add_page(index, title="AutoDev AI | Autonomous Architect")

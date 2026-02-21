@@ -80,7 +80,9 @@ async def build_project(request: BuildRequest):
         "files": {},
         "test_results": {},
         "status": "started",
-        "debug_iterations": 0
+        "debug_iterations": 0,
+        "test_files": {},
+        "errors": []
     }
 
     async def event_generator():

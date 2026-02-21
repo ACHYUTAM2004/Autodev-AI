@@ -6,5 +6,6 @@ class AgentState(TypedDict):
     tech_decisions: Dict[str, str]
     files: Dict[str, str]
     test_results: Dict[str, Any]
-    debug_iterations: int # <--- Add this field
+    debug_iterations: int
+    test_files: Dict[str, str]  # Test files tracked separately for debug-loop optimization
     errors: List[str]
