@@ -4,6 +4,7 @@ from app.agents.coder import coder_agent
 from app.agents.tester import tester_agent
 from app.agents.debugger import debugger_agent 
 from app.agents.architect import architect_agent
+from app.agents.validator import validator_agent
 
 def check_test_results(state: AgentState):
     """
@@ -35,6 +36,7 @@ def build_graph():
     # Add Nodes
     workflow.add_node("architect", architect_agent)
     workflow.add_node("coder", coder_agent)
+    workflow.add_node("validator", validator_agent)
     workflow.add_node("tester", tester_agent)
     workflow.add_node("debugger", debugger_agent)
 
@@ -42,11 +44,12 @@ def build_graph():
     workflow.set_entry_point("architect")
     workflow.add_edge("architect", "coder")
     
-    # Standard Flow: Coder -> Tester
-    workflow.add_edge("coder", "tester")
+    # Standard Flow: Coder -> Validator -> Tester
+    workflow.add_edge("coder", "validator")
+    workflow.add_edge("validator", "tester")
     
-    # Debugger Flow: Debugger -> Tester (Always verify fixes)
-    workflow.add_edge("debugger", "tester")
+    # Debugger Flow: Debugger -> Validator -> Tester (Always validate fixes too)
+    workflow.add_edge("debugger", "validator")
 
     # Conditional Logic (The Router)
     workflow.add_conditional_edges(
