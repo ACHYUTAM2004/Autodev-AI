@@ -149,9 +149,9 @@ def terminal_window():
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.circle(size="3", bg="#ff5f56"),
-                    rx.circle(size="3", bg="#ffbd2e"),
-                    rx.circle(size="3", bg="#27c93f"),
+                    rx.box(width="12px", height="12px", border_radius="50%", bg="#ff5f56"),
+                    rx.box(width="12px", height="12px", border_radius="50%", bg="#ffbd2e"),
+                    rx.box(width="12px", height="12px", border_radius="50%", bg="#27c93f"),
                     rx.text("Build Console", font_weight="600", color="gray", size="2", margin_left="1em"),
                     rx.spacer(),
                     rx.badge(
