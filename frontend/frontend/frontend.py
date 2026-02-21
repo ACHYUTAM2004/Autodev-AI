@@ -77,6 +77,16 @@ class State(rx.State):
     logs: list[str] = []
     download_url: str = ""
 
+    def reset_state(self):
+        """Reset all state to defaults on page load/reload."""
+        self.project_name = ""
+        self.description = ""
+        self.tech_stack_input = ""
+        self.is_building = False
+        self.build_result = {}
+        self.logs = []
+        self.download_url = ""
+
     def set_project_name(self, value: str):
         self.project_name = value
 
@@ -379,4 +389,4 @@ app = rx.App(
         rx.el.link(rel="stylesheet", href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=JetBrains+Mono&display=swap"),
     ],
 )
-app.add_page(index, title="AutoDev AI | Autonomous Architect")
+app.add_page(index, title="AutoDev AI | Autonomous Architect", on_load=State.reset_state)
