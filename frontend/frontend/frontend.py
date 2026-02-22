@@ -2,6 +2,7 @@ import reflex as rx
 import httpx
 import json
 import os
+import asyncio
 import logging
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -99,26 +100,23 @@ class State(rx.State):
     def set_tech_stack_input(self, value: str):
         self.tech_stack_input = value
 
-    @rx.background
     async def start_build(self):
-        """Call the AutoDev API with Streaming (runs as background task)."""
-        async with self:
-            if not self.project_name or not self.description:
-                return
-            self.is_building = True
-            self.logs = [f"🚀 Initializing build sequence for '{self.project_name}'..."]
-            self.download_url = ""
-            project_name = self.project_name
-            tech_stack_input = self.tech_stack_input
-            description = self.description
+        """Call the AutoDev API with Streaming."""
+        if not self.project_name or not self.description:
+            return
 
-        _cancel_requested[project_name] = False
+        self.is_building = True
+        self.logs = [f"🚀 Initializing build sequence for '{self.project_name}'..."]
+        self.download_url = ""
+        yield
+
+        _cancel_requested[self.project_name] = False
 
         payload = {
-            "project_name": project_name,
-            "description": description,
+            "project_name": self.project_name,
+            "description": self.description,
             "constraints": {
-                "backend": tech_stack_input
+                "backend": self.tech_stack_input
             }
         }
 
@@ -129,74 +127,76 @@ class State(rx.State):
             async with httpx.AsyncClient(base_url=domain, timeout=None) as client:
                 async with client.stream("POST", "/autodev/build", json=payload) as response:
                     if response.status_code != 200:
-                        async with self:
-                            self.logs.append(f"❌ Server Error: {response.status_code}")
-                            self.is_building = False
+                        self.logs.append(f"❌ Server Error: {response.status_code}")
+                        yield
                         return
 
-                    async for line in response.aiter_lines():
-                        # Check client-side cancel flag
-                        if _cancel_requested.get(project_name):
-                            async with self:
+                    line_iter = response.aiter_lines().__aiter__()
+                    while True:
+                        # Use timeout so we periodically yield control to Reflex
+                        # This lets stop_build execute between yields
+                        try:
+                            line = await asyncio.wait_for(
+                                line_iter.__anext__(), timeout=2.0
+                            )
+                        except asyncio.TimeoutError:
+                            # Yield to let queued events (stop_build) process
+                            yield
+                            if _cancel_requested.get(self.project_name):
                                 self.logs.append("🛑 Build stopped.")
                                 self.is_building = False
-                            return
+                                yield
+                                # Also tell backend to stop
+                                try:
+                                    async with httpx.AsyncClient(base_url=domain, timeout=5) as c:
+                                        await c.post("/autodev/build/cancel",
+                                                     params={"project_name": self.project_name})
+                                except Exception:
+                                    pass
+                                _cancel_requested.pop(self.project_name, None)
+                                return
+                            continue
+                        except StopAsyncIteration:
+                            break
 
                         if not line:
                             continue
                         try:
                             data = json.loads(line)
                             if data["type"] == "log":
-                                async with self:
-                                    self.logs.append(data["content"])
+                                self.logs.append(data["content"])
+                                yield
                             elif data["type"] == "cancelled":
-                                async with self:
-                                    self.logs.append("🛑 Build stopped.")
-                                    self.is_building = False
+                                self.logs.append("🛑 Build stopped.")
+                                self.is_building = False
+                                yield
                                 return
                             elif data["type"] == "result":
-                                async with self:
-                                    self.build_result = data["data"]
-                                    raw_url = data["data"]["download_url"]
-                                    if "download/" in raw_url:
-                                        path = raw_url.split("download/")[-1]
-                                        self.download_url = f"/autodev/download/{path}"
-                                    else:
-                                        self.download_url = raw_url
-                                    self.logs.append("✨ Build Sequence Complete!")
+                                self.build_result = data["data"]
+                                raw_url = data["data"]["download_url"]
+                                if "download/" in raw_url:
+                                    path = raw_url.split("download/")[-1]
+                                    self.download_url = f"/autodev/download/{path}"
+                                else:
+                                    self.download_url = raw_url
+                                self.logs.append("✨ Build Sequence Complete!")
+                                yield
                         except json.JSONDecodeError:
                             continue
 
         except Exception as e:
-            async with self:
-                self.logs.append(f"❌ Critical Failure: {str(e)}")
+            self.logs.append(f"❌ Critical Failure: {str(e)}")
             logger.error(f"❌ CRITICAL ERROR: {e}")
-        
-        async with self:
-            self.is_building = False
-        _cancel_requested.pop(project_name, None)
+
+        self.is_building = False
+        _cancel_requested.pop(self.project_name, None)
 
     async def stop_build(self):
-        """Cancel a running build — executes immediately since start_build is a background task."""
+        """Cancel a running build. Runs when start_build yields on timeout."""
         if not self.is_building:
             return
-        
-        # 1. Set client-side flag (instant — breaks the stream loop)
         _cancel_requested[self.project_name] = True
-        
-        # 2. Also tell the backend to stop between agent nodes
-        domain = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000")
-        try:
-            async with httpx.AsyncClient(base_url=domain, timeout=10) as client:
-                await client.post(
-                    "/autodev/build/cancel",
-                    params={"project_name": self.project_name}
-                )
-        except Exception:
-            pass  # Client-side flag is enough
-        
         self.logs.append("🛑 Cancelling build...")
-        self.is_building = False
 
 # --- 3. UI COMPONENTS ---
 
