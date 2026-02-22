@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field
 from app.core.llm import get_llm
 from app.graph.state import AgentState
 from app.core.logger import logger
+from app.core.language_config import get_language_profile, LANGUAGE_PROFILES
 
 # ---------------------------------------------------------------------
 # 1. DEFINE THE OUTPUT SCHEMA (The "Shape" of data we want)
@@ -78,8 +79,11 @@ def architect_agent(state: AgentState):
         
     except Exception as e:
         logger.error(f"Architect failed: {e}")
-        # Fallback defaults in case of severe failure
+        # Fallback: detect language from constraints, use its default stack
+        constraints = user_req.get("constraints", {})
+        lang_hint = constraints.get("backend", "python") if isinstance(constraints, dict) else "python"
+        fallback_profile = get_language_profile({"language": lang_hint})
         return {
-            "plan": ["1. Initialize project structure", "2. Create main.py"],
-            "tech_decisions": {"language": "python", "framework": "fastapi", "database": "sqlite", "orm": "sqlalchemy"}
+            "plan": ["1. Initialize project structure", "2. Create main entry file"],
+            "tech_decisions": fallback_profile["fallback_tech"]
         }

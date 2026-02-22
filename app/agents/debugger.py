@@ -4,9 +4,10 @@ from langchain_core.prompts import ChatPromptTemplate
 from app.core.llm import get_llm
 from app.graph.state import AgentState
 from app.core.logger import logger
+from app.core.language_config import detect_language, get_language_profile
 
 # ---------------------------------------------------------------------
-# 1. SUPERCHARGED PROMPT (CoT + Blindness Fix)
+# 1. DYNAMIC PROMPT (Language-Agnostic Shell + Injected Taxonomy)
 # ---------------------------------------------------------------------
 debugger_prompt = ChatPromptTemplate.from_messages([
     ("system", """You are the Senior AI Software Architect and Debugging Lead at AutoDev AI.
@@ -24,31 +25,10 @@ debugger_prompt = ChatPromptTemplate.from_messages([
     **CRITICAL INSTRUCTION: FIXING "BLINDNESS"**
     - The Coder might have forgotten to create essential files.
     - **IF A FILE IS MISSING, CREATE IT.**
-    - Common missing files: `tests/conftest.py`, `.env`, `pytest.ini`, `tests/__init__.py`.
     - Do not complain that a file is missing. Just output the `<file path="...">` tag with the new content.
     
-    **EXPANDED ERROR TAXONOMY (MEMORIZE THIS):**
-    For each error type, apply the EXACT fix pattern:
-    
-    | Error Pattern | Root Cause | Fix |
-    |---|---|---|
-    | `ModuleNotFoundError: No module named 'X'` | Missing from requirements.txt OR wrong import path | Add to requirements.txt AND verify the import path matches the directory structure |
-    | `ImportError: cannot import name 'Y' from 'X'` | Y doesn't exist in module X (typo or wrong module) | Check the actual exports of module X, fix the import |
-    | `AttributeError: 'X' object has no attribute 'Y'` | Method/property doesn't exist on that class | Check class definition, fix the attribute name or add missing method |
-    | `TypeError: X() got an unexpected keyword argument 'Y'` | Function signature doesn't match the call | Align function parameters with call sites |
-    | `422 Unprocessable Entity` | Request body doesn't match Pydantic schema | Fix the test request payload OR the Pydantic schema |
-    | `404 Not Found` | Route not registered, wrong URL path, or httpx base_url wrong | Check `app.include_router()`, route prefix, and test client `base_url` |
-    | `ScopeMismatch` | Function-scoped fixture depends on session-scoped | Make all related fixtures the same scope |
-    | `fixture 'X' not found` | Missing conftest.py or fixture not defined there | Create/fix conftest.py with the fixture |
-    | `sqlalchemy.exc.OperationalError` | DB tables not created or wrong DB URL | Ensure `create_all()` runs before tests with correct engine |
-    | `RuntimeError: Event loop is closed` | Async test teardown issue | Use `pytest-asyncio` with correct scope, use `@pytest_asyncio.fixture` |
-    | `AssertionError: assert 200 == 201` | Wrong status code returned by endpoint | Check endpoint return, ensure `status_code=201` for POST/create |
-    | `pydantic.errors.PydanticUserError` | Using Pydantic V1 syntax with V2 | Use `ConfigDict`, `model_validate`, `from_attributes=True` |
-    | `assert None is not None` on `tzinfo` | SQLite strips timezone info from `DateTime(timezone=True)` | Remove `tzinfo` assertions in tests using SQLite, or use naive datetime comparisons |
-    | `assert 'url/' == 'url'` (trailing slash) | Pydantic `HttpUrl` normalizes URLs (adds trailing `/`) | Compare against `str(HttpUrl(...))` normalized form, not raw input |
-    | `assert 307 == 404` | FastAPI `redirect_slashes=True` (default) causes 307 redirect | Set `FastAPI(redirect_slashes=False)` or fix test expectations |
-    | `IntegrityError: UNIQUE constraint failed` | Test transaction isolation broken — `commit()` persists across tests | Use proper nested transaction pattern: connection → begin → bind session → rollback |
-    | Unhandled `Exception` causes raw 500 | Utility raises `Exception`, endpoint doesn't catch it as `HTTPException` | Wrap utility calls in try/except, raise `HTTPException(status_code=500)` |
+    **LANGUAGE-SPECIFIC ERROR TAXONOMY:**
+    {error_taxonomy}
     
     **FULL ERROR CASCADE ANALYSIS (MANDATORY):**
     After identifying and fixing the first error:
@@ -60,26 +40,13 @@ debugger_prompt = ChatPromptTemplate.from_messages([
     4. Continue until you are confident ALL tests will pass.
     
     **FILE DEPENDENCY GRAPH (BUILD THIS INTERNALLY):**
-    Before writing fixes, mentally map:
-    - main.py → imports routers → each router imports models, schemas, db
-    - conftest.py → imports app → uses AsyncClient with app
-    - test_*.py → imports conftest fixtures → calls API endpoints
+    Before writing fixes, mentally map the dependency graph of all files:
+    - Which files import/require from which other files?
+    - Which test files depend on which source files?
+    - Which config files affect runtime behavior?
     
     Verify EVERY edge in this graph is satisfied by the files you output.
     
-    **CONSISTENCY VALIDATION (MANDATORY BEFORE OUTPUT):**
-    Before outputting files, verify ALL of these:
-    - [ ] requirements.txt includes every imported third-party package
-    - [ ] Every `from X import Y` resolves to an actual file and symbol
-    - [ ] async tests use `pytest-asyncio` and `asyncio_mode = auto` in pytest.ini
-    - [ ] conftest.py fixtures match the app structure (correct import path, correct DB setup)
-    - [ ] Environment variables in code match those in .env
-    - [ ] DB URLs in test conftest are separate from production .env
-    - [ ] All router prefixes match what tests expect
-    - [ ] All Pydantic schemas use V2 syntax (ConfigDict, from_attributes)
-    - [ ] Every `await` is on an async function, every async function is awaited
-    - [ ] No circular imports exist
-
     **COMPLETENESS GATE (FINAL CHECK):**
     Before outputting your response, count:
     1. Number of DISTINCT errors in the test log: N
@@ -103,20 +70,19 @@ debugger_prompt = ChatPromptTemplate.from_messages([
     Return the response in this exact XML structure:
     
     <plan>
-    1. Error: "Fixture 'mocker' not found".
-    2. Cause: Missing pytest-mock dependency.
-    3. Strategy: Add pytest-mock to requirements.txt.
-    4. Cascade: After fixing this, test_X.py will run further and hit...
+    1. Error: "..."
+    2. Cause: ...
+    3. Strategy: ...
+    4. Cascade: After fixing this, ...
     </plan>
     
-    <file path="requirements.txt">
-    fastapi
-    pytest-mock
+    <file path="path/to/file">
+    ... full corrected content ...
     </file>
     
     **Rules:**
     - Return the FULL content of any file you modify or create.
-    - Do not use markdown blocks (```python) inside the XML tags.
+    - Do not use markdown blocks (```python or ```javascript) inside the XML tags.
     """),
     ("user", """
     --- DEBUG ITERATION: {debug_iteration} of 2 ---
@@ -139,11 +105,11 @@ def parse_debugger_output(text: str) -> Dict[str, str]:
     if not isinstance(text, str):
         text = str(text)
 
-    # Sanitize escaped newlines (common LLM bug)
+    # Sanitize escaped newlines
     if "\\n" in text and "\n" not in text:
         text = text.replace("\\n", "\n")
 
-    # 1. Extract and Log the Plan (For visibility)
+    # 1. Extract and Log the Plan
     plan_match = re.search(r'<plan>(.*?)</plan>', text, re.DOTALL)
     if plan_match:
         plan_content = plan_match.group(1).strip()
@@ -169,22 +135,28 @@ def parse_debugger_output(text: str) -> Dict[str, str]:
     return files
 
 # ---------------------------------------------------------------------
-# 3. AGENT FUNCTION
+# 3. AGENT FUNCTION (Language-Aware)
 # ---------------------------------------------------------------------
 def debugger_agent(state: AgentState):
     logger.info(f"--- DEBUGGER AGENT: Fixing {state['user_input'].get('project_name')} ---")
     
     existing_files = state.get("files", {})
     test_results = state.get("test_results", {})
+    tech_decisions = state.get("tech_decisions", {})
+    
+    # Get language profile for error taxonomy
+    profile = get_language_profile(tech_decisions)
+    language = detect_language(tech_decisions)
+    logger.info(f"  Debugging for language: {language}")
     
     # 1. Prepare Context
+    skip_ext = profile.get("skip_extensions", ())
     file_context_str = ""
     for path, content in existing_files.items():
-        # Skip binary/lock files to save tokens
-        if not path.endswith((".lock", ".png", ".jpg", ".pyc", ".zip", "package-lock.json")):
+        if not path.endswith(skip_ext) and not path.endswith(("package-lock.json",)):
             file_context_str += f"\n--- FILE: {path} ---\n{content}\n"
 
-    # 2. Invoke LLM
+    # 2. Invoke LLM with language-specific error taxonomy
     llm = get_llm(temperature=0.0) 
     chain = debugger_prompt | llm 
     
@@ -192,7 +164,8 @@ def debugger_agent(state: AgentState):
         response = chain.invoke({
             "existing_files": file_context_str[:60000], 
             "test_output": test_results.get("output", "No logs available.")[-20000:],
-            "debug_iteration": state.get("debug_iterations", 0) + 1
+            "debug_iteration": state.get("debug_iterations", 0) + 1,
+            "error_taxonomy": profile["debugger_taxonomy"],
         })
         
         # 3. Parse Output
@@ -201,12 +174,11 @@ def debugger_agent(state: AgentState):
         if not fixed_files:
             logger.warning("⚠️ Debugger returned no files. It might have failed to find a fix.")
         else:
-            # Check for NEW files (Blindness Fix verification)
             new_paths = set(fixed_files.keys()) - set(existing_files.keys())
             if new_paths:
                 logger.info(f"✨ Debugger CREATED new files: {new_paths}")
         
-        # 4. Merge Updates (This logic handles both edits AND creations)
+        # 4. Merge Updates
         new_files = {**existing_files, **fixed_files}
         
         return {

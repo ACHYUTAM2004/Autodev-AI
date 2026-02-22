@@ -2,6 +2,7 @@ import os
 import re
 import sys
 import time
+import json
 import hashlib
 import subprocess
 from typing import Union, List, Dict, Tuple
@@ -10,67 +11,48 @@ from app.core.llm import get_llm
 from app.graph.state import AgentState
 from app.core.config import settings
 from app.core.logger import logger
+from app.core.language_config import detect_language, get_language_profile
 
 # ---------------------------------------------------------------------
-# TESTER PROMPT
+# TESTER PROMPT (Language-Agnostic Shell)
 # ---------------------------------------------------------------------
 tester_prompt = ChatPromptTemplate.from_messages([
     ("system", """You are the Test Automation Engineer for AutoDev AI.
     
-    **Goal:** 1. Read the provided source code.
-    2. Write thorough, deterministic unit tests that will catch real bugs.
-    3. Specify the testing framework (e.g., 'pytest', 'unittest').
+    **CRITICAL: UNDERSTAND BEFORE WRITING (Chain of Thought)**
+    Before writing a single test, you MUST internally:
+    1.  **Map the codebase**: Identify ALL endpoints/routes/functions. List them mentally.
+    2.  **Design test DB setup FIRST**: Figure out how tests will connect to an isolated
+        database BEFORE writing any test cases. Get the fixtures/setup right first.
+    3.  **Plan coverage**: For EACH endpoint, decide what tests are needed (happy path,
+        validation errors, not-found, edge cases). Count: N endpoints × ~4 tests each.
     
-    **Test Quality Rules (CRITICAL):**
+    **COVERAGE COMPLETENESS GATE (MANDATORY):**
+    After writing all tests, count:
+    1. Number of endpoints/routes in the source code: E
+    2. Number of endpoints covered by at least one test: T
+    3. If T < E, you are NOT done. Add tests for the missing endpoints.
     
-    1.  **Deterministic Assertions:** NEVER use weak assertions like:
-        - `assert response is not None` ← USELESS
-        - `assert response.status_code != 500` ← TOO WEAK
-        
-        ALWAYS use EXACT assertions:
-        - `assert response.status_code == 201`
-        - `assert data["name"] == "test_item"`
-        - `assert len(data) == 1`
-        - `assert "id" in data`
+    **TEST INDEPENDENCE (ZERO COUPLING):**
+    - Each test MUST work if run alone, in any order, or in parallel.
+    - NEVER rely on a previous test's side effects (e.g., "create" before "get").
+    - Each test creates its OWN test data in the test body or fixture.
     
-    2.  **CRUD Coverage:** For every endpoint, test:
-        - **Create (POST):** Correct status code (201), response body contains created data
-        - **Read (GET):** Returns 200 with correct data, returns 404 for non-existent ID
-        - **Update (PUT/PATCH):** Returns updated data, returns 404 for missing
-        - **Delete (DELETE):** Returns 200/204, subsequent GET returns 404
-        - **Validation:** Invalid input returns 422 with error details
+    **ANTI-FLAKE RULES:**
+    - NEVER use sleep/delays, random data, real timestamps, or external services.
+    - NEVER assert on auto-generated IDs by exact value — only assert they exist.
+    - Use deterministic test data (hardcoded strings, not random).
     
-    3.  **Edge Cases (MANDATORY):**
-        - Empty string inputs where strings are required
-        - Non-existent IDs (e.g., ID=99999) should return 404
-        - Missing required fields should return 422
-        - Duplicate entries if uniqueness is implied
+    **SETUP-FIRST THINKING:**
+    The #1 cause of test failure is broken setup, NOT bad assertions.
+    Spend 80% of your thinking on getting the test client + DB setup correct.
+    The actual test cases are the easy part.
     
-    4.  **Async Test Setup (If app is async):**
-        YOU MUST generate `tests/conftest.py` with:
-        - A separate test database URL (e.g., `sqlite+aiosqlite:///./test.db`)
-        - `@pytest_asyncio.fixture` for the async client
-        - Table creation and teardown per test session
-        - `httpx.AsyncClient` with `ASGITransport` and correct `base_url="http://test"`
-        
-    5.  **Test Isolation:** Each test should be independent. Do not rely on test execution order.
+    Think step-by-step internally, but DO NOT output the reasoning.
+    Only output the final test files.
     
-    **Output Format:**
-    Do NOT return JSON. Return the test files wrapped in XML-style tags:
-    
-    <file path="tests/test_main.py">
-    import pytest
-    from app.main import app
-    ...
-    </file>
-    
-    <framework>pytest</framework>
-    
-    **Important:** - The 'path' must be relative.
-    - If testing Python, prefer 'pytest'.
-    - Do NOT include installation commands.
-    - **If creating a test folder, YOU MUST include an empty <file path="tests/__init__.py"></file>.**
-    - **YOU MUST generate a `tests/conftest.py`** with proper async DB setup if the app uses async.
+    **LANGUAGE-SPECIFIC RULES:**
+    {language_rules}
     """),
     ("user", """
     Project: {project_name}
@@ -88,15 +70,12 @@ def sanitize_content(content: str) -> str:
     """Cleans up common LLM formatting artifacts from generated code."""
     content = content.strip()
     
-    # Remove wrapping quotes if the LLM added them (JSON style)
     if content.startswith('"') and content.endswith('"'):
         content = content[1:-1]
         
-    # Fix literal "\\n" to actual newlines
     if "\\n" in content and "\n" not in content:
         content = content.replace("\\n", "\n")
         
-    # Unescape quotes: client.post(\'/users\') -> client.post('/users')
     content = content.replace("\\'", "'").replace('\\"', '"')
     
     return content
@@ -110,7 +89,7 @@ def parse_tester_output(text: Union[str, list]) -> Tuple[Dict[str, str], str]:
         text = str(text)
 
     files = {}
-    framework = "pytest" 
+    framework = "pytest"  # Default, overridden by <framework> tag
     
     # Extract Files
     file_pattern = r'<file\s+path="([^"]+)">\s*(.*?)\s*</file>'
@@ -127,33 +106,30 @@ def parse_tester_output(text: Union[str, list]) -> Tuple[Dict[str, str], str]:
     return files, framework
 
 # ---------------------------------------------------------------------
-# SMART CONTEXT BUILDER
+# SMART CONTEXT BUILDER (Language-Aware)
 # ---------------------------------------------------------------------
-# File priority tiers for LLM context (higher priority = included first)
-_HIGH_PRIORITY = (".py",)
-_LOW_PRIORITY = (".txt", ".ini", ".cfg", ".env", ".toml", ".md")
-_SKIP_EXTENSIONS = (".lock", ".png", ".jpg", ".jpeg", ".gif", ".pyc", ".zip", ".tar", ".gz")
+_SKIP_ALWAYS = (".lock", ".png", ".jpg", ".jpeg", ".gif", ".pyc", ".zip", ".tar", ".gz", ".map")
 
-def build_smart_context(files: Dict[str, str], max_chars: int = 25000) -> str:
+def build_smart_context(files: Dict[str, str], profile: dict, max_chars: int = 25000) -> str:
     """
     Builds LLM context from project files with intelligent prioritization.
-    
-    - Prioritizes source files (.py) over config files.
-    - Never truncates mid-file: either includes the full file or skips it.
-    - Skips binary/lock files entirely.
+    Uses the language profile to determine which file types are high priority.
     """
+    high_prio_ext = profile.get("high_priority_ext", (".py",))
+    low_prio_ext = profile.get("low_priority_ext", (".txt", ".ini", ".cfg", ".env", ".toml", ".md"))
+    skip_ext = profile.get("skip_extensions", _SKIP_ALWAYS)
+    
     high_prio = []
     low_prio = []
     
     for path, content in files.items():
-        if path.endswith(_SKIP_EXTENSIONS):
+        if path.endswith(skip_ext):
             continue
-        if path.endswith(_HIGH_PRIORITY):
+        if path.endswith(high_prio_ext):
             high_prio.append((path, content))
         else:
             low_prio.append((path, content))
     
-    # Sort each tier: shorter files first (include more files within budget)
     high_prio.sort(key=lambda x: len(x[1]))
     low_prio.sort(key=lambda x: len(x[1]))
     
@@ -166,7 +142,6 @@ def build_smart_context(files: Dict[str, str], max_chars: int = 25000) -> str:
             context_parts.append(entry)
             remaining -= len(entry)
         else:
-            # Skip this file entirely rather than truncating mid-file
             logger.debug(f"Context budget exceeded, skipping: {path} ({len(entry)} chars)")
     
     return "".join(context_parts)
@@ -175,10 +150,7 @@ def build_smart_context(files: Dict[str, str], max_chars: int = 25000) -> str:
 # SUBPROCESS RUNNER
 # ---------------------------------------------------------------------
 def run_command(command: Union[str, List[str]], cwd: str, timeout: int = 300) -> Tuple[bool, str, str, float]:
-    """
-    Runs a subprocess command and returns (success, stdout, stderr, elapsed_seconds).
-    Separates stdout/stderr for cleaner log handling.
-    """
+    """Runs a subprocess command and returns (success, stdout, stderr, elapsed_seconds)."""
     try:
         cmd_str = " ".join(command) if isinstance(command, list) else command
         logger.info(f"--- EXEC: {cmd_str} in {cwd} ---")
@@ -221,16 +193,13 @@ def _read_cached_hash(hash_path: str) -> str:
         return ""
 
 def _write_file_if_changed(filepath: str, content: str) -> bool:
-    """
-    Writes content to file ONLY if it differs from what's on disk.
-    Returns True if a write was performed, False if skipped.
-    """
+    """Writes content to file ONLY if it differs from what's on disk."""
     try:
         with open(filepath, "r", encoding="utf-8") as f:
             if f.read() == content:
-                return False  # Content identical, skip write
+                return False
     except (FileNotFoundError, UnicodeDecodeError):
-        pass  # File doesn't exist or can't be read — write it
+        pass
     
     os.makedirs(os.path.dirname(filepath), exist_ok=True)
     with open(filepath, "w", encoding="utf-8") as f:
@@ -238,7 +207,7 @@ def _write_file_if_changed(filepath: str, content: str) -> bool:
     return True
 
 # ---------------------------------------------------------------------
-# TEST SETUP & EXECUTION
+# TEST SETUP & EXECUTION (Language-Aware)
 # ---------------------------------------------------------------------
 def setup_and_run_tests(
     project_name: str,
@@ -248,7 +217,7 @@ def setup_and_run_tests(
 ) -> Tuple[bool, str]:
     """
     Sets up the project environment and executes tests.
-    Optimized to skip redundant work on debug re-runs.
+    Dispatches to Python or Node.js execution paths based on tech_stack language.
     """
     project_path = os.path.join(settings.GENERATION_DIR, project_name)
     os.makedirs(project_path, exist_ok=True)
@@ -268,110 +237,24 @@ def setup_and_run_tests(
     logs = [f"--- Files: {written} written, {skipped} unchanged ---"]
 
     # ------------------------------------------------------------------
-    # 2. Environment Setup
+    # 2. Environment Setup (Language-Dispatched)
     # ------------------------------------------------------------------
-    language = tech_stack.get("language", "python").lower()
+    language = detect_language(tech_stack)
     is_windows = sys.platform.startswith("win")
     success = False
 
-    if "python" in language:
-        venv_dir = os.path.join(project_path, "venv")
-        if is_windows:
-            python_exe = os.path.join(venv_dir, "Scripts", "python.exe")
-            pip_exe = os.path.join(venv_dir, "Scripts", "pip.exe")
-        else:
-            python_exe = os.path.join(venv_dir, "bin", "python")
-            pip_exe = os.path.join(venv_dir, "bin", "pip")
+    if language == "python":
+        success, py_logs = _run_python_tests(project_path, framework, tech_stack, is_windows)
+        logs.extend(py_logs)
 
-        # A. Create venv (ONLY if it doesn't exist)
-        if not os.path.exists(python_exe):
-            logs.append("--- Creating Venv (First Run Only) ---")
-            ok, out, err, t = run_command([sys.executable, "-m", "venv", "venv"], project_path)
-            logs.append(f"  [{t}s] {err.strip() if err.strip() else 'OK'}")
-            if not ok:
-                return False, "\n".join(logs)
-            
-            # Upgrade pip once
-            logs.append("--- Upgrading Pip (First Run Only) ---")
-            ok, out, err, t = run_command([python_exe, "-m", "pip", "install", "--upgrade", "pip"], project_path)
-            logs.append(f"  [{t}s] Done")
-        else:
-            logs.append("--- Venv exists, skipping creation ---")
+    elif language == "node":
+        success, node_logs = _run_node_tests(project_path, tech_stack)
+        logs.extend(node_logs)
 
-        # B. Install requirements.txt (ONLY if it changed)
-        req_path = os.path.join(project_path, "requirements.txt")
-        req_hash_path = os.path.join(venv_dir, ".req_hash")
-        
-        if os.path.exists(req_path):
-            current_hash = _hash_file(req_path)
-            cached_hash = _read_cached_hash(req_hash_path)
-            
-            if current_hash != cached_hash:
-                logs.append("--- Installing/Updating Dependencies (requirements.txt changed) ---")
-                ok, out, err, t = run_command(
-                    [python_exe, "-m", "pip", "install", "-r", "requirements.txt"],
-                    project_path
-                )
-                if ok:
-                    # Cache the hash on success
-                    with open(req_hash_path, "w") as f:
-                        f.write(current_hash)
-                    logs.append(f"  [{t}s] Dependencies installed")
-                else:
-                    logs.append(f"  [{t}s] FAILED:\n{err[-2000:]}")
-                    return False, "\n".join(logs)
-            else:
-                logs.append("--- requirements.txt unchanged, skipping install ---")
-        else:
-            logs.append("--- WARNING: No requirements.txt found, skipping dependency install ---")
+    else:
+        logs.append(f"--- WARNING: Unsupported language '{language}', skipping tests ---")
 
-        # C. Install test framework & tools (ONLY on first run)
-        tools_marker = os.path.join(venv_dir, ".tools_installed")
-        if not os.path.exists(tools_marker):
-            if framework and framework.lower() != "unittest":
-                logs.append(f"--- Installing {framework} (First Run Only) ---")
-                run_command([python_exe, "-m", "pip", "install", framework], project_path)
-                
-                if "fastapi" in tech_stack.get("framework", "").lower():
-                    logs.append("--- Installing httpx (First Run Only) ---")
-                    run_command([python_exe, "-m", "pip", "install", "httpx"], project_path)
-            
-            with open(tools_marker, "w") as f:
-                f.write("done")
-        else:
-            logs.append("--- Framework & tools already installed, skipping ---")
-
-        # D. Run Tests with compact output
-        logs.append(f"--- Running Tests ({framework}) ---")
-        if "django" in tech_stack.get("framework", "").lower():
-            test_cmd = [python_exe, "manage.py", "test"]
-        else:
-            test_cmd = [python_exe, "-m", framework, "--tb=short", "-q"]
-        
-        ok, out, err, t = run_command(test_cmd, project_path)
-        # Combine test output (pytest prints results to stdout)
-        test_output = (out + "\n" + err).strip()
-        logs.append(f"  [{t}s] {'PASSED' if ok else 'FAILED'}")
-        logs.append(test_output)
-        success = ok
-
-    elif "node" in language or "javascript" in language:
-        if not os.path.exists(os.path.join(project_path, "node_modules")):
-            logs.append("--- Installing Node Dependencies (First Run) ---")
-            ok, out, err, t = run_command("npm install", project_path)
-            if not ok:
-                return False, out + "\n" + err
-        else:
-            logs.append("--- Updating Node Dependencies ---")
-            run_command("npm install", project_path)
-
-        logs.append("--- Running Tests ---")
-        ok, out, err, t = run_command("npm test", project_path)
-        logs.append(f"  [{t}s] {'PASSED' if ok else 'FAILED'}")
-        logs.append((out + "\n" + err).strip())
-        success = ok
-
-    # Save full logs to disk (for human inspection)
+    # Save full logs to disk
     log_path = os.path.join(project_path, "test_execution.log")
     full_log = "\n".join(logs)
     with open(log_path, "w", encoding="utf-8") as f:
@@ -379,18 +262,139 @@ def setup_and_run_tests(
     
     return success, full_log
 
+
+def _run_python_tests(project_path: str, framework: str, tech_stack: dict, is_windows: bool) -> Tuple[bool, List[str]]:
+    """Python test execution: venv creation, pip install, pytest."""
+    logs = []
+    venv_dir = os.path.join(project_path, "venv")
+    
+    if is_windows:
+        python_exe = os.path.join(venv_dir, "Scripts", "python.exe")
+        pip_exe = os.path.join(venv_dir, "Scripts", "pip.exe")
+    else:
+        python_exe = os.path.join(venv_dir, "bin", "python")
+        pip_exe = os.path.join(venv_dir, "bin", "pip")
+
+    # A. Create venv (ONLY if it doesn't exist)
+    if not os.path.exists(python_exe):
+        logs.append("--- Creating Venv (First Run Only) ---")
+        ok, out, err, t = run_command([sys.executable, "-m", "venv", "venv"], project_path)
+        logs.append(f"  [{t}s] {err.strip() if err.strip() else 'OK'}")
+        if not ok:
+            return False, logs
+        
+        logs.append("--- Upgrading Pip (First Run Only) ---")
+        ok, out, err, t = run_command([python_exe, "-m", "pip", "install", "--upgrade", "pip"], project_path)
+        logs.append(f"  [{t}s] Done")
+    else:
+        logs.append("--- Venv exists, skipping creation ---")
+
+    # B. Install requirements.txt (ONLY if it changed)
+    req_path = os.path.join(project_path, "requirements.txt")
+    req_hash_path = os.path.join(venv_dir, ".req_hash")
+    
+    if os.path.exists(req_path):
+        current_hash = _hash_file(req_path)
+        cached_hash = _read_cached_hash(req_hash_path)
+        
+        if current_hash != cached_hash:
+            logs.append("--- Installing/Updating Dependencies (requirements.txt changed) ---")
+            ok, out, err, t = run_command(
+                [python_exe, "-m", "pip", "install", "-r", "requirements.txt"],
+                project_path
+            )
+            if ok:
+                with open(req_hash_path, "w") as f:
+                    f.write(current_hash)
+                logs.append(f"  [{t}s] Dependencies installed")
+            else:
+                logs.append(f"  [{t}s] FAILED:\n{err[-2000:]}")
+                return False, logs
+        else:
+            logs.append("--- requirements.txt unchanged, skipping install ---")
+    else:
+        logs.append("--- WARNING: No requirements.txt found, skipping dependency install ---")
+
+    # C. Install test framework & tools (ONLY on first run)
+    tools_marker = os.path.join(venv_dir, ".tools_installed")
+    if not os.path.exists(tools_marker):
+        if framework and framework.lower() != "unittest":
+            logs.append(f"--- Installing {framework} (First Run Only) ---")
+            run_command([python_exe, "-m", "pip", "install", framework], project_path)
+            
+            if "fastapi" in tech_stack.get("framework", "").lower():
+                logs.append("--- Installing httpx (First Run Only) ---")
+                run_command([python_exe, "-m", "pip", "install", "httpx"], project_path)
+        
+        with open(tools_marker, "w") as f:
+            f.write("done")
+    else:
+        logs.append("--- Framework & tools already installed, skipping ---")
+
+    # D. Run Tests
+    logs.append(f"--- Running Tests ({framework}) ---")
+    if "django" in tech_stack.get("framework", "").lower():
+        test_cmd = [python_exe, "manage.py", "test"]
+    else:
+        test_cmd = [python_exe, "-m", framework, "--tb=short", "-q"]
+    
+    ok, out, err, t = run_command(test_cmd, project_path)
+    test_output = (out + "\n" + err).strip()
+    logs.append(f"  [{t}s] {'PASSED' if ok else 'FAILED'}")
+    logs.append(test_output)
+    
+    return ok, logs
+
+
+def _run_node_tests(project_path: str, tech_stack: dict) -> Tuple[bool, List[str]]:
+    """Node.js test execution: npm install, npm test."""
+    logs = []
+    
+    pkg_json_path = os.path.join(project_path, "package.json")
+    node_modules_path = os.path.join(project_path, "node_modules")
+    pkg_hash_path = os.path.join(project_path, ".pkg_hash")
+    
+    if not os.path.exists(pkg_json_path):
+        logs.append("--- ERROR: No package.json found. Cannot run Node.js tests. ---")
+        return False, logs
+    
+    # A. Install dependencies (only if package.json changed or node_modules doesn't exist)
+    current_hash = _hash_file(pkg_json_path)
+    cached_hash = _read_cached_hash(pkg_hash_path)
+    
+    if not os.path.exists(node_modules_path) or current_hash != cached_hash:
+        logs.append("--- Installing Node Dependencies (npm install) ---")
+        ok, out, err, t = run_command("npm install", project_path)
+        if ok:
+            with open(pkg_hash_path, "w") as f:
+                f.write(current_hash)
+            logs.append(f"  [{t}s] Dependencies installed")
+        else:
+            logs.append(f"  [{t}s] npm install FAILED:\n{(out + err)[-2000:]}")
+            return False, logs
+    else:
+        logs.append("--- package.json unchanged, skipping npm install ---")
+    
+    # B. Run Tests
+    logs.append("--- Running Tests (npm test) ---")
+    ok, out, err, t = run_command("npm test", project_path)
+    test_output = (out + "\n" + err).strip()
+    logs.append(f"  [{t}s] {'PASSED' if ok else 'FAILED'}")
+    logs.append(test_output)
+    
+    return ok, logs
+
+
 # ---------------------------------------------------------------------
-# AGENT FUNCTION
+# AGENT FUNCTION (Language-Aware)
 # ---------------------------------------------------------------------
-# Maximum characters of test output to pass into state (for debugger)
 _MAX_OUTPUT_CHARS = 15000
 
 def tester_agent(state: AgentState) -> dict:
     """
     Test Agent — generates and executes tests.
-    
-    Optimization: On debug re-runs (test_files already exist in state),
-    skips the LLM call entirely and just re-runs the existing tests.
+    Language-aware: uses the correct prompt rules, context priorities,
+    and test framework based on tech_decisions.
     """
     project_name = state["user_input"].get("project_name")
     logger.info(f"--- TEST AGENT: Verifying {project_name} ---")
@@ -401,10 +405,15 @@ def tester_agent(state: AgentState) -> dict:
     existing_test_files = state.get("test_files", {})
     debug_iterations = state.get("debug_iterations", 0)
     
+    # Get language profile
+    profile = get_language_profile(tech_decisions)
+    language = detect_language(tech_decisions)
+    default_framework = profile["default_test_framework"]
+    
+    logger.info(f"  Language: {language}, Default framework: {default_framework}")
+    
     # ------------------------------------------------------------------
     # OPTIMIZATION: Skip LLM on debug re-runs
-    # If the debugger just fixed code and test files already exist,
-    # we only need to re-run the tests — NOT regenerate them.
     # ------------------------------------------------------------------
     if existing_test_files and debug_iterations > 0:
         logger.info("♻️  Debug re-run detected — reusing existing test files (skipping LLM call)")
@@ -412,7 +421,7 @@ def tester_agent(state: AgentState) -> dict:
         
         success, output = setup_and_run_tests(
             project_name, all_files,
-            "pytest",  # Framework is already decided
+            default_framework,
             tech_decisions
         )
         
@@ -434,8 +443,8 @@ def tester_agent(state: AgentState) -> dict:
     logger.info("🧪 First test run — generating tests via LLM")
     tech_stack_str = f"{tech_decisions.get('language')} / {tech_decisions.get('framework')}"
 
-    # Build smart context (prioritized, never mid-file truncated)
-    file_context_str = build_smart_context(existing_files)
+    # Build smart context using language-aware priorities
+    file_context_str = build_smart_context(existing_files, profile)
 
     llm = get_llm(temperature=0.1)
     chain = tester_prompt | llm 
@@ -444,7 +453,8 @@ def tester_agent(state: AgentState) -> dict:
         response = chain.invoke({
             "project_name": user_req.get("project_name"),
             "tech_stack": tech_stack_str,
-            "file_context": file_context_str
+            "file_context": file_context_str,
+            "language_rules": profile["tester_rules"],
         })
         
         # Parse LLM output
@@ -465,11 +475,11 @@ def tester_agent(state: AgentState) -> dict:
         
         return {
             "files": all_files,
-            "test_files": test_files_dict,  # Store separately for debug-loop reuse
+            "test_files": test_files_dict,
             "test_results": {
                 "tests_passed": success,
                 "output": output[-_MAX_OUTPUT_CHARS:],
-                "command": f"Automated {framework} in venv"
+                "command": f"Automated {framework} in {'venv' if language == 'python' else 'node_modules'}"
             }
         }
     except Exception as e:
