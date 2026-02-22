@@ -363,8 +363,10 @@ def _run_node_tests(project_path: str, tech_stack: dict) -> Tuple[bool, List[str
     cached_hash = _read_cached_hash(pkg_hash_path)
     
     if not os.path.exists(node_modules_path) or current_hash != cached_hash:
-        logs.append("--- Installing Node Dependencies (npm install) ---")
-        ok, out, err, t = run_command("npm install", project_path)
+        # --include=dev ensures jest/supertest/mongodb-memory-server are installed
+        # even when NODE_ENV=production (e.g., on Render)
+        logs.append("--- Installing Node Dependencies (npm install --include=dev) ---")
+        ok, out, err, t = run_command("npm install --include=dev", project_path)
         if ok:
             with open(pkg_hash_path, "w") as f:
                 f.write(current_hash)

@@ -64,6 +64,9 @@ STYLE_CSS = """
 }
 """
 
+# Module-level cancel flag (not in State — not serializable, shared across handlers)
+_cancel_requested: dict[str, bool] = {}
+
 # --- 2. STATE ---
 class State(rx.State):
     """The app state."""
@@ -96,21 +99,26 @@ class State(rx.State):
     def set_tech_stack_input(self, value: str):
         self.tech_stack_input = value
 
+    @rx.background
     async def start_build(self):
-        """Call the AutoDev API with Streaming."""
-        if not self.project_name or not self.description:
-            return
+        """Call the AutoDev API with Streaming (runs as background task)."""
+        async with self:
+            if not self.project_name or not self.description:
+                return
+            self.is_building = True
+            self.logs = [f"🚀 Initializing build sequence for '{self.project_name}'..."]
+            self.download_url = ""
+            project_name = self.project_name
+            tech_stack_input = self.tech_stack_input
+            description = self.description
 
-        self.is_building = True
-        self.logs = [f"🚀 Initializing build sequence for '{self.project_name}'..."]
-        self.download_url = ""
-        yield 
+        _cancel_requested[project_name] = False
 
         payload = {
-            "project_name": self.project_name,
-            "description": self.description,
+            "project_name": project_name,
+            "description": description,
             "constraints": {
-                "backend": self.tech_stack_input
+                "backend": tech_stack_input
             }
         }
 
@@ -121,45 +129,62 @@ class State(rx.State):
             async with httpx.AsyncClient(base_url=domain, timeout=None) as client:
                 async with client.stream("POST", "/autodev/build", json=payload) as response:
                     if response.status_code != 200:
-                        self.logs.append(f"❌ Server Error: {response.status_code}")
-                        yield
+                        async with self:
+                            self.logs.append(f"❌ Server Error: {response.status_code}")
+                            self.is_building = False
                         return
 
                     async for line in response.aiter_lines():
-                        if not line: continue
+                        # Check client-side cancel flag
+                        if _cancel_requested.get(project_name):
+                            async with self:
+                                self.logs.append("🛑 Build stopped.")
+                                self.is_building = False
+                            return
+
+                        if not line:
+                            continue
                         try:
                             data = json.loads(line)
                             if data["type"] == "log":
-                                self.logs.append(data["content"])
-                                yield 
+                                async with self:
+                                    self.logs.append(data["content"])
                             elif data["type"] == "cancelled":
-                                self.logs.append("🛑 Build stopped.")
-                                self.is_building = False
-                                yield
+                                async with self:
+                                    self.logs.append("🛑 Build stopped.")
+                                    self.is_building = False
                                 return
                             elif data["type"] == "result":
-                                self.build_result = data["data"]
-                                raw_url = data["data"]["download_url"]
-                                if "download/" in raw_url:
-                                    path = raw_url.split("download/")[-1]
-                                    self.download_url = f"/autodev/download/{path}"
-                                else:
-                                    self.download_url = raw_url
-                                self.logs.append("✨ Build Sequence Complete!")
-                                yield
+                                async with self:
+                                    self.build_result = data["data"]
+                                    raw_url = data["data"]["download_url"]
+                                    if "download/" in raw_url:
+                                        path = raw_url.split("download/")[-1]
+                                        self.download_url = f"/autodev/download/{path}"
+                                    else:
+                                        self.download_url = raw_url
+                                    self.logs.append("✨ Build Sequence Complete!")
                         except json.JSONDecodeError:
                             continue
 
         except Exception as e:
-            self.logs.append(f"❌ Critical Failure: {str(e)}")
+            async with self:
+                self.logs.append(f"❌ Critical Failure: {str(e)}")
             logger.error(f"❌ CRITICAL ERROR: {e}")
         
-        self.is_building = False
+        async with self:
+            self.is_building = False
+        _cancel_requested.pop(project_name, None)
 
     async def stop_build(self):
-        """Cancel a running build."""
+        """Cancel a running build — executes immediately since start_build is a background task."""
         if not self.is_building:
             return
+        
+        # 1. Set client-side flag (instant — breaks the stream loop)
+        _cancel_requested[self.project_name] = True
+        
+        # 2. Also tell the backend to stop between agent nodes
         domain = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000")
         try:
             async with httpx.AsyncClient(base_url=domain, timeout=10) as client:
@@ -167,9 +192,11 @@ class State(rx.State):
                     "/autodev/build/cancel",
                     params={"project_name": self.project_name}
                 )
-            self.logs.append("🛑 Cancelling build...")
-        except Exception as e:
-            self.logs.append(f"⚠️ Could not cancel: {e}")
+        except Exception:
+            pass  # Client-side flag is enough
+        
+        self.logs.append("🛑 Cancelling build...")
+        self.is_building = False
 
 # --- 3. UI COMPONENTS ---
 
