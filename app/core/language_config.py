@@ -498,11 +498,18 @@ LANGUAGE_PROFILES = {
 _ALIASES = {
     "javascript": "node",
     "js": "node",
+    "node.js": "node",
     "nodejs": "node",
+    "node js": "node",
     "typescript": "node",
     "ts": "node",
+    "express": "node",
+    "express.js": "node",
     "python3": "python",
     "py": "python",
+    "flask": "python",
+    "fastapi": "python",
+    "django": "python",
 }
 
 
