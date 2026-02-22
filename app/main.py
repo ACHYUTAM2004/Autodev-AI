@@ -1,12 +1,16 @@
 import os
 import shutil
 import json
+import threading
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, FileResponse
 from app.core.schemas import BuildRequest
 from app.core.config import settings
-from app.graph.flow import app as graph_app 
+from app.graph.flow import app as graph_app
+
+# --- Cancellation Support ---
+_cancel_flags: dict[str, threading.Event] = {}
 
 api = FastAPI(
     title="AutoDev AI API",
@@ -68,10 +72,26 @@ async def download_project(project_name: str):
         filename=f"{project_name}.zip"
     )
 
-# --- 4. BUILD ENDPOINT (Streaming + State Merging) ---
+# --- 4. CANCEL ENDPOINT ---
+@api.post("/build/cancel")
+async def cancel_build(project_name: str = ""):
+    """Sets the cancel flag for a running build."""
+    if project_name and project_name in _cancel_flags:
+        _cancel_flags[project_name].set()
+        return {"status": "cancelled", "project": project_name}
+    # Cancel ALL running builds if no name specified
+    for flag in _cancel_flags.values():
+        flag.set()
+    return {"status": "cancelled", "project": "all"}
+
+# --- 5. BUILD ENDPOINT (Streaming + State Merging) ---
 @api.post("/build")
 async def build_project(request: BuildRequest):
     print(f"Received build request for: {request.project_name}")
+
+    # Create a fresh cancel flag for this build
+    cancel_event = threading.Event()
+    _cancel_flags[request.project_name] = cancel_event
 
     initial_state = {
         "user_input": request.model_dump(),
@@ -91,16 +111,23 @@ async def build_project(request: BuildRequest):
         # Initialize a persistent state container to avoid overwriting
         current_state = initial_state.copy()
         
-        # 1. Stream updates from LangGraph
-        async for event in graph_app.astream(initial_state):
-            for node_name, state_update in event.items():
-                
-                # Merge new data (files, plans, test results) into current_state
-                current_state.update(state_update)
-                
-                # Yield a log message for the UI
-                log_msg = f"🤖 {node_name.upper()} Agent finished task."
-                yield json.dumps({"type": "log", "content": log_msg}) + "\n"
+        try:
+            # 1. Stream updates from LangGraph
+            async for event in graph_app.astream(initial_state):
+                # Check cancel flag between agent nodes
+                if cancel_event.is_set():
+                    yield json.dumps({"type": "log", "content": "🛑 Build cancelled by user."}) + "\n"
+                    yield json.dumps({"type": "cancelled", "data": {}}) + "\n"
+                    return
+
+                for node_name, state_update in event.items():
+                    
+                    # Merge new data (files, plans, test results) into current_state
+                    current_state.update(state_update)
+                    
+                    # Yield a log message for the UI
+                    log_msg = f"🤖 {node_name.upper()} Agent finished task."
+                    yield json.dumps({"type": "log", "content": log_msg}) + "\n"
                 
                 # Yield specific logs
                 if node_name == "planner":
@@ -110,35 +137,37 @@ async def build_project(request: BuildRequest):
                     status = "Passed" if results.get("tests_passed") else "Failed"
                     yield json.dumps({"type": "log", "content": f"🧪 Tests {status}"}) + "\n"
 
-        # 2. Save & Zip Logic
-        yield json.dumps({"type": "log", "content": "💾 Saving and Zipping project..."}) + "\n"
-        
-        # Get accumulated files
-        files = current_state.get("files", {})
-        
-        if not files:
-            yield json.dumps({"type": "log", "content": "⚠️ Warning: No files found in final state."}) + "\n"
-        
-        # Save to disk
-        project_path = save_project_to_disk(request.project_name, files)
+            # 2. Save & Zip Logic
+            yield json.dumps({"type": "log", "content": "💾 Saving and Zipping project..."}) + "\n"
+            
+            # Get accumulated files
+            files = current_state.get("files", {})
+            
+            if not files:
+                yield json.dumps({"type": "log", "content": "⚠️ Warning: No files found in final state."}) + "\n"
+            
+            # Save to disk
+            project_path = save_project_to_disk(request.project_name, files)
 
-        # 3. Create Summary & Download Link
-        # The frontend will parse this and fix the domain if needed
-        download_url = f"/autodev/download/{request.project_name}"
+            # 3. Create Summary & Download Link
+            download_url = f"/autodev/download/{request.project_name}"
 
-        summary = {
-            "project_name": request.project_name,
-            "tech_stack": current_state.get("tech_decisions", {}),
-            "test_results": current_state.get("test_results", {}),
-            "download_url": download_url 
-        }
-        
-        # Save Summary JSON inside the project folder
-        summary_path = os.path.join(project_path, "autodev_summary.json")
-        with open(summary_path, "w", encoding="utf-8") as f:
-            json.dump(summary, f, indent=2)
+            summary = {
+                "project_name": request.project_name,
+                "tech_stack": current_state.get("tech_decisions", {}),
+                "test_results": current_state.get("test_results", {}),
+                "download_url": download_url 
+            }
+            
+            # Save Summary JSON inside the project folder
+            summary_path = os.path.join(project_path, "autodev_summary.json")
+            with open(summary_path, "w", encoding="utf-8") as f:
+                json.dump(summary, f, indent=2)
 
-        # Send final result to UI
-        yield json.dumps({"type": "result", "data": summary}) + "\n"
+            # Send final result to UI
+            yield json.dumps({"type": "result", "data": summary}) + "\n"
+        finally:
+            # Clean up cancel flag
+            _cancel_flags.pop(request.project_name, None)
 
     return StreamingResponse(event_generator(), media_type="application/x-ndjson")

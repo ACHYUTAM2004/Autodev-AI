@@ -110,7 +110,7 @@ class State(rx.State):
             "project_name": self.project_name,
             "description": self.description,
             "constraints": {
-                "tech_preferences": self.tech_stack_input
+                "backend": self.tech_stack_input
             }
         }
 
@@ -132,6 +132,11 @@ class State(rx.State):
                             if data["type"] == "log":
                                 self.logs.append(data["content"])
                                 yield 
+                            elif data["type"] == "cancelled":
+                                self.logs.append("🛑 Build stopped.")
+                                self.is_building = False
+                                yield
+                                return
                             elif data["type"] == "result":
                                 self.build_result = data["data"]
                                 raw_url = data["data"]["download_url"]
@@ -150,6 +155,21 @@ class State(rx.State):
             logger.error(f"❌ CRITICAL ERROR: {e}")
         
         self.is_building = False
+
+    async def stop_build(self):
+        """Cancel a running build."""
+        if not self.is_building:
+            return
+        domain = os.getenv("RENDER_EXTERNAL_URL", "http://localhost:8000")
+        try:
+            async with httpx.AsyncClient(base_url=domain, timeout=10) as client:
+                await client.post(
+                    "/autodev/build/cancel",
+                    params={"project_name": self.project_name}
+                )
+            self.logs.append("🛑 Cancelling build...")
+        except Exception as e:
+            self.logs.append(f"⚠️ Could not cancel: {e}")
 
 # --- 3. UI COMPONENTS ---
 
@@ -280,25 +300,47 @@ def main_card():
                 width="100%",
             ),
 
-            # CTA Button
-            rx.button(
-                rx.hstack(
-                    rx.icon("sparkles", size=20),
-                    rx.text("Synthesize System", weight="bold"),
-                    spacing="3",
+            # CTA Buttons (Build / Stop)
+            rx.cond(
+                State.is_building,
+                # STOP button (shown during build)
+                rx.button(
+                    rx.hstack(
+                        rx.icon("square", size=20),
+                        rx.text("Stop Build", weight="bold"),
+                        spacing="3",
+                    ),
+                    on_click=State.stop_build,
+                    size="4",
+                    width="100%",
+                    radius="large",
+                    variant="solid",
+                    color_scheme="red",
+                    margin_top="1.5em",
+                    cursor="pointer",
+                    background="linear-gradient(90deg, #dc2626, #b91c1c)",
+                    _hover={"opacity": "0.9"},
+                    transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
                 ),
-                on_click=State.start_build,
-                loading=State.is_building,
-                size="4",
-                width="100%",
-                radius="large",
-                variant="solid",
-                color_scheme="ruby",
-                margin_top="1.5em",
-                className="button-glow",
-                cursor="pointer",
-                background="linear-gradient(90deg, #ff006e, #8338ec)",
-                transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                # BUILD button (shown when idle)
+                rx.button(
+                    rx.hstack(
+                        rx.icon("sparkles", size=20),
+                        rx.text("Synthesize System", weight="bold"),
+                        spacing="3",
+                    ),
+                    on_click=State.start_build,
+                    size="4",
+                    width="100%",
+                    radius="large",
+                    variant="solid",
+                    color_scheme="ruby",
+                    margin_top="1.5em",
+                    className="button-glow",
+                    cursor="pointer",
+                    background="linear-gradient(90deg, #ff006e, #8338ec)",
+                    transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                ),
             ),
 
             # Download Section

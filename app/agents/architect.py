@@ -35,8 +35,21 @@ architect_prompt = ChatPromptTemplate.from_messages([
     **Goal:** Analyze the user request and produce a comprehensive technical blueprint.
     
     **Responsibilities:**
-    1. **Tech Stack Selection:** Choose the best Language, Framework, Database, and ORM.
+    1. **Tech Stack Selection:** Choose the Language, Framework, Database, and ORM.
     2. **Implementation Plan:** Create a step-by-step guide to build the application.
+    
+    **CRITICAL — RESPECT USER CONSTRAINTS:**
+    If the user specifies a tech stack in their constraints (e.g., "Node.js", "Express",
+    "MongoDB"), you MUST use what they asked for. DO NOT override their choice.
+    - If they say "Node.js" or "Express" or "JavaScript" → set language to "node".
+    - If they say "Python" or "FastAPI" or "Flask" → set language to "python".
+    - If they say "MongoDB" → set database to "mongodb" and orm to "mongoose".
+    - If they say "PostgreSQL" → set database to "postgresql".
+    - Only make independent choices for fields the user did NOT specify.
+    
+    **Language field values:**
+    - Use "python" for Python projects.
+    - Use "node" for Node.js / JavaScript / TypeScript / Express projects.
     
     **Output Format:**
     You must return a JSON object matching the following instructions:
@@ -45,7 +58,7 @@ architect_prompt = ChatPromptTemplate.from_messages([
     ("user", """
     Project Name: {project_name}
     Description: {description}
-    Constraints: {constraints}
+    User Tech Constraints: {constraints}
     """)
 ])
 
@@ -72,9 +85,11 @@ def architect_agent(state: AgentState):
         })
         
         # The parser guarantees 'response' is a valid Python dictionary
+        tech = response.get("tech_decisions", {})
+        logger.info(f"  Architect chose: {tech}")
         return {
             "plan": response.get("plan", []),
-            "tech_decisions": response.get("tech_decisions", {})
+            "tech_decisions": tech
         }
         
     except Exception as e:
