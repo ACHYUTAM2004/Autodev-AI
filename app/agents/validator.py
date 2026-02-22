@@ -315,8 +315,8 @@ def _parse_package_json(pkg_content: str) -> Tuple[set, dict]:
 
 def validate_package_json_node(files: Dict[str, str]) -> Tuple[Dict[str, str], List[str]]:
     """
-    Validates that package.json exists, has a test script, and all
-    require()'d modules are listed as dependencies.
+    Validates that package.json exists, has a test script, fixes common jest issues,
+    and ensures all require()'d modules are listed as dependencies.
     """
     fixes = []
     
@@ -330,15 +330,36 @@ def validate_package_json_node(files: Dict[str, str]) -> Tuple[Dict[str, str], L
         fixes.append("WARNING: package.json is not valid JSON. Cannot validate dependencies.")
         return files, fixes
     
+    pkg_changed = False
+    
     # Check for test script
     scripts = pkg.get("scripts", {})
-    if "test" not in scripts or not scripts["test"] or scripts["test"] == 'echo "Error: no test specified" && exit 1':
-        # Auto-fix: add a jest test script
+    test_script = scripts.get("test", "")
+    
+    if not test_script or test_script == 'echo "Error: no test specified" && exit 1':
+        # No test script at all — add one
         if "scripts" not in pkg:
             pkg["scripts"] = {}
-        pkg["scripts"]["test"] = "jest --forceExit --detectOpenHandles"
+        pkg["scripts"]["test"] = "npx jest --forceExit --detectOpenHandles"
+        pkg_changed = True
+        fixes.append("Added 'test': 'npx jest --forceExit --detectOpenHandles' to package.json scripts")
+    elif "jest" in test_script and "npx" not in test_script:
+        # Fix bare 'jest' command to 'npx jest' (prevents 'jest: not found')
+        pkg["scripts"]["test"] = test_script.replace("jest", "npx jest", 1)
+        pkg_changed = True
+        fixes.append(f"Fixed test script: '{test_script}' → '{pkg['scripts']['test']}' (prevents jest: not found)")
+    
+    # Fix dual Jest config conflict: jest.config.js + jest key in package.json
+    has_jest_config_file = any(
+        p in files for p in ("jest.config.js", "jest.config.ts", "jest.config.mjs", "jest.config.cjs")
+    )
+    if has_jest_config_file and "jest" in pkg:
+        del pkg["jest"]
+        pkg_changed = True
+        fixes.append("Removed 'jest' key from package.json (conflicts with jest.config.js)")
+    
+    if pkg_changed:
         files["package.json"] = json.dumps(pkg, indent=2) + "\n"
-        fixes.append("Added 'test': 'jest --forceExit --detectOpenHandles' to package.json scripts")
     
     # Scan all JS/TS files for require()/import
     all_requires = set()

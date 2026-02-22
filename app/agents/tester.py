@@ -375,9 +375,9 @@ def _run_node_tests(project_path: str, tech_stack: dict) -> Tuple[bool, List[str
     else:
         logs.append("--- package.json unchanged, skipping npm install ---")
     
-    # B. Run Tests
-    logs.append("--- Running Tests (npm test) ---")
-    ok, out, err, t = run_command("npm test", project_path)
+    # B. Run Tests (use npx jest directly — avoids 'jest: not found' issues)
+    logs.append("--- Running Tests (npx jest) ---")
+    ok, out, err, t = run_command("npx jest --forceExit --detectOpenHandles", project_path)
     test_output = (out + "\n" + err).strip()
     logs.append(f"  [{t}s] {'PASSED' if ok else 'FAILED'}")
     logs.append(test_output)

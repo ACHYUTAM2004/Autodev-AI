@@ -127,7 +127,8 @@ _NODE_CODER_RULES = """
     1.  **Dependency Safety:**
         -   You MUST generate a `package.json` with ALL dependencies and their versions.
         -   Use exact versions (not ranges) for core dependencies.
-        -   Include a `"test"` script in `package.json` (e.g., `"test": "jest --forceExit --detectOpenHandles"`).
+        -   Include a `"test"` script in `package.json`: `"test": "npx jest --forceExit --detectOpenHandles"`.
+        -   **NEVER use bare `jest` in the test script** — always use `npx jest` to avoid 'jest: not found' errors.
         -   Include a `"start"` script (e.g., `"start": "node server.js"`).
         -   Common dependencies for Express + MongoDB:
             `express`, `mongoose`, `dotenv`, `cors`, `helmet`
@@ -147,7 +148,8 @@ _NODE_CODER_RULES = """
         -   Middleware in `middleware/` directory if needed.
         
     4.  **Testing Readiness:**
-        -   **YOU MUST generate a `jest.config.js`** or include jest config in `package.json`.
+        -   **YOU MUST generate a `jest.config.js`** for Jest configuration.
+        -   **DO NOT put a `jest` key in `package.json` if you also create `jest.config.js`** — this causes a fatal 'Multiple configurations found' error.
         -   Tests go in `__tests__/` or `tests/` directory, or use `.test.js` suffix.
         -   Use `supertest` for HTTP endpoint testing.
         -   Use `mongodb-memory-server` for test DB isolation (in-memory MongoDB).
@@ -328,7 +330,8 @@ _NODE_TESTER_RULES = """
     5.  **Test Isolation:** Each test should be independent. Do not rely on test execution order.
     
     6.  **Package.json test script:** The `package.json` MUST have:
-        `"test": "jest --forceExit --detectOpenHandles"`
+        `"test": "npx jest --forceExit --detectOpenHandles"`
+        **NEVER use bare `jest`** — it won't be found on the PATH.
     
     **Output Format:**
     Do NOT return JSON. Return the test files wrapped in XML-style tags:
