@@ -2,7 +2,6 @@ import reflex as rx
 import httpx
 import json
 import os
-import asyncio
 import logging
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
@@ -65,8 +64,7 @@ STYLE_CSS = """
 }
 """
 
-# Module-level cancel flag (not in State — not serializable, shared across handlers)
-_cancel_requested: dict[str, bool] = {}
+
 
 # --- 2. STATE ---
 class State(rx.State):
@@ -108,9 +106,7 @@ class State(rx.State):
         self.is_building = True
         self.logs = [f"🚀 Initializing build sequence for '{self.project_name}'..."]
         self.download_url = ""
-        yield
-
-        _cancel_requested[self.project_name] = False
+        yield 
 
         payload = {
             "project_name": self.project_name,
@@ -131,46 +127,13 @@ class State(rx.State):
                         yield
                         return
 
-                    line_iter = response.aiter_lines().__aiter__()
-                    while True:
-                        # Use timeout so we periodically yield control to Reflex
-                        # This lets stop_build execute between yields
-                        try:
-                            line = await asyncio.wait_for(
-                                line_iter.__anext__(), timeout=2.0
-                            )
-                        except asyncio.TimeoutError:
-                            # Yield to let queued events (stop_build) process
-                            yield
-                            if _cancel_requested.get(self.project_name):
-                                self.logs.append("🛑 Build stopped.")
-                                self.is_building = False
-                                yield
-                                # Also tell backend to stop
-                                try:
-                                    async with httpx.AsyncClient(base_url=domain, timeout=5) as c:
-                                        await c.post("/autodev/build/cancel",
-                                                     params={"project_name": self.project_name})
-                                except Exception:
-                                    pass
-                                _cancel_requested.pop(self.project_name, None)
-                                return
-                            continue
-                        except StopAsyncIteration:
-                            break
-
-                        if not line:
-                            continue
+                    async for line in response.aiter_lines():
+                        if not line: continue
                         try:
                             data = json.loads(line)
                             if data["type"] == "log":
                                 self.logs.append(data["content"])
-                                yield
-                            elif data["type"] == "cancelled":
-                                self.logs.append("🛑 Build stopped.")
-                                self.is_building = False
-                                yield
-                                return
+                                yield 
                             elif data["type"] == "result":
                                 self.build_result = data["data"]
                                 raw_url = data["data"]["download_url"]
@@ -187,16 +150,8 @@ class State(rx.State):
         except Exception as e:
             self.logs.append(f"❌ Critical Failure: {str(e)}")
             logger.error(f"❌ CRITICAL ERROR: {e}")
-
+        
         self.is_building = False
-        _cancel_requested.pop(self.project_name, None)
-
-    async def stop_build(self):
-        """Cancel a running build. Runs when start_build yields on timeout."""
-        if not self.is_building:
-            return
-        _cancel_requested[self.project_name] = True
-        self.logs.append("🛑 Cancelling build...")
 
 # --- 3. UI COMPONENTS ---
 
@@ -327,47 +282,25 @@ def main_card():
                 width="100%",
             ),
 
-            # CTA Buttons (Build / Stop)
-            rx.cond(
-                State.is_building,
-                # STOP button (shown during build)
-                rx.button(
-                    rx.hstack(
-                        rx.icon("square", size=20),
-                        rx.text("Stop Build", weight="bold"),
-                        spacing="3",
-                    ),
-                    on_click=State.stop_build,
-                    size="4",
-                    width="100%",
-                    radius="large",
-                    variant="solid",
-                    color_scheme="red",
-                    margin_top="1.5em",
-                    cursor="pointer",
-                    background="linear-gradient(90deg, #dc2626, #b91c1c)",
-                    _hover={"opacity": "0.9"},
-                    transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+            # CTA Button
+            rx.button(
+                rx.hstack(
+                    rx.icon("sparkles", size=20),
+                    rx.text("Synthesize System", weight="bold"),
+                    spacing="3",
                 ),
-                # BUILD button (shown when idle)
-                rx.button(
-                    rx.hstack(
-                        rx.icon("sparkles", size=20),
-                        rx.text("Synthesize System", weight="bold"),
-                        spacing="3",
-                    ),
-                    on_click=State.start_build,
-                    size="4",
-                    width="100%",
-                    radius="large",
-                    variant="solid",
-                    color_scheme="ruby",
-                    margin_top="1.5em",
-                    className="button-glow",
-                    cursor="pointer",
-                    background="linear-gradient(90deg, #ff006e, #8338ec)",
-                    transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
-                ),
+                on_click=State.start_build,
+                loading=State.is_building,
+                size="4",
+                width="100%",
+                radius="large",
+                variant="solid",
+                color_scheme="ruby",
+                margin_top="1.5em",
+                className="button-glow",
+                cursor="pointer",
+                background="linear-gradient(90deg, #ff006e, #8338ec)",
+                transition="all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
             ),
 
             # Download Section
