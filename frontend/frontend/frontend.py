@@ -5,7 +5,7 @@ import os
 import logging
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from app.main import api as autodevapi
 
 logging.basicConfig(level=logging.INFO)
@@ -270,12 +270,16 @@ def mount_autodev(app: FastAPI) -> FastAPI:
         app.mount("/", StaticFiles(directory="public", html=True), name="static")
     
     # 3. Catch-all route for Client-Side Routing (Single Page App)
-    @app.get("/{rest_of_path:path}")
-    async def caught_all(request: Request, rest_of_path: str):
+    async def caught_all(request: Request):
+        # Access the path from path_params
+        rest_of_path = request.path_params.get("rest_of_path", "")
+        
         # If it's not an API call and file doesn't exist, serve index.html
         if not rest_of_path.startswith("autodev") and os.path.exists("public/index.html"):
             return FileResponse("public/index.html")
-        return {"detail": "Not Found"}
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+
+    app.add_route("/{rest_of_path:path}", caught_all, methods=["GET"])
 
     return app
 
