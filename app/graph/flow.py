@@ -1,34 +1,8 @@
 from langgraph.graph import StateGraph, END
 from app.graph.state import AgentState
 from app.agents.coder import coder_agent
-from app.agents.tester import tester_agent
-from app.agents.debugger import debugger_agent 
 from app.agents.architect import architect_agent
-from app.agents.validator import validator_agent
-
-def check_test_results(state: AgentState):
-    """
-    Router Logic:
-    1. Tests Passed? -> END (Success)
-    2. Too many tries? -> END (Give up)
-    3. Failure? -> DEBUGGER (Expert Fix)
-    """
-    results = state.get("test_results", {})
-    iterations = state.get("debug_iterations", 0)
-    
-    # 1. Success Check
-    if results.get("tests_passed", False):
-        print("✅ Tests Passed! Finishing execution.")
-        return "end"
-    
-    # 2. Safety Limit Check
-    if iterations >= 2:
-        print("🛑 MAX DEBUG ITERATIONS REACHED. Stopping.")
-        return "end"
-
-    # 3. Expert Debugger Check (Direct Route)
-    print(f"🚑 Test failure detected (Iter {iterations}). Routing to DEBUGGER.")
-    return "debugger"
+from app.agents.fixer import fixer_agent
 
 def build_graph():
     workflow = StateGraph(AgentState)
@@ -36,30 +10,13 @@ def build_graph():
     # Add Nodes
     workflow.add_node("architect", architect_agent)
     workflow.add_node("coder", coder_agent)
-    workflow.add_node("validator", validator_agent)
-    workflow.add_node("tester", tester_agent)
-    workflow.add_node("debugger", debugger_agent)
+    workflow.add_node("fixer", fixer_agent)
 
-    # Define Edges
+    # Linear Pipeline: Architect → Coder → Fixer → END
     workflow.set_entry_point("architect")
     workflow.add_edge("architect", "coder")
-    
-    # Standard Flow: Coder -> Validator -> Tester
-    workflow.add_edge("coder", "validator")
-    workflow.add_edge("validator", "tester")
-    
-    # Debugger Flow: Debugger -> Validator -> Tester (Always validate fixes too)
-    workflow.add_edge("debugger", "validator")
-
-    # Conditional Logic (The Router)
-    workflow.add_conditional_edges(
-        "tester",
-        check_test_results,
-        {
-            "end": END,
-            "debugger": "debugger" # Removed "coder" path, pure debugging now
-        }
-    )
+    workflow.add_edge("coder", "fixer")
+    workflow.add_edge("fixer", END)
 
     return workflow.compile()
 

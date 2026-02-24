@@ -230,204 +230,6 @@ _NODE_CODER_RULES = """
 """
 
 # =====================================================================
-# TESTER PROFILES
-# =====================================================================
-_PYTHON_TESTER_RULES = """
-    **Goal:** 1. Read the provided source code.
-    2. Write thorough, deterministic unit tests that will catch real bugs.
-    3. Specify the testing framework (e.g., 'pytest', 'unittest').
-    
-    **Test Quality Rules (CRITICAL):**
-    
-    1.  **Deterministic Assertions:** NEVER use weak assertions like:
-        - `assert response is not None` ← USELESS
-        - `assert response.status_code != 500` ← TOO WEAK
-        
-        ALWAYS use EXACT assertions:
-        - `assert response.status_code == 201`
-        - `assert data["name"] == "test_item"`
-        - `assert len(data) == 1`
-        - `assert "id" in data`
-    
-    2.  **CRUD Coverage:** For every endpoint, test:
-        - **Create (POST):** Correct status code (201), response body contains created data
-        - **Read (GET):** Returns 200 with correct data, returns 404 for non-existent ID
-        - **Update (PUT/PATCH):** Returns updated data, returns 404 for missing
-        - **Delete (DELETE):** Returns 200/204, subsequent GET returns 404
-        - **Validation:** Invalid input returns 422 with error details
-    
-    3.  **Edge Cases (MANDATORY):**
-        - Empty string inputs where strings are required
-        - Non-existent IDs (e.g., ID=99999) should return 404
-        - Missing required fields should return 422
-        - Duplicate entries if uniqueness is implied
-    
-    4.  **Async Test Setup (If app is async):**
-        YOU MUST generate `tests/conftest.py` with:
-        - A separate test database URL (e.g., `sqlite+aiosqlite:///./test.db`)
-        - `@pytest_asyncio.fixture` for the async client
-        - Table creation and teardown per test session
-        - `httpx.AsyncClient` with `ASGITransport` and correct `base_url="http://test"`
-        
-    5.  **Test Isolation:** Each test should be independent. Do not rely on test execution order.
-    
-    **Output Format:**
-    Do NOT return JSON. Return the test files wrapped in XML-style tags:
-    
-    <file path="tests/test_main.py">
-    import pytest
-    from app.main import app
-    ...
-    </file>
-    
-    <framework>pytest</framework>
-    
-    **Important:** - The 'path' must be relative.
-    - If testing Python, prefer 'pytest'.
-    - Do NOT include installation commands.
-    - **If creating a test folder, YOU MUST include an empty <file path="tests/__init__.py"></file>.**
-    - **YOU MUST generate a `tests/conftest.py`** with proper async DB setup if the app uses async.
-"""
-
-_NODE_TESTER_RULES = """
-    **Goal:** 1. Read the provided source code.
-    2. Write thorough, deterministic unit tests using Jest + Supertest.
-    3. Specify the testing framework (always 'jest' for Node.js).
-    
-    **Test Quality Rules (CRITICAL):**
-    
-    1.  **Deterministic Assertions:** NEVER use weak assertions like:
-        - `expect(response).toBeDefined()` ← USELESS
-        - `expect(response.status).not.toBe(500)` ← TOO WEAK
-        
-        ALWAYS use EXACT assertions:
-        - `expect(response.status).toBe(201)`
-        - `expect(response.body.name).toBe("test_item")`
-        - `expect(response.body).toHaveLength(1)`
-        - `expect(response.body).toHaveProperty("_id")`
-    
-    2.  **CRUD Coverage:** For every endpoint, test:
-        - **Create (POST):** Correct status code (201), response body contains created data
-        - **Read (GET):** Returns 200 with correct data, returns 404 for non-existent ID
-        - **Update (PUT/PATCH):** Returns updated data, returns 404 for missing
-        - **Delete (DELETE):** Returns 200/204, subsequent GET returns 404
-        - **Validation:** Invalid input returns 400 with error message
-    
-    3.  **Edge Cases (MANDATORY):**
-        - Empty string inputs where strings are required
-        - Non-existent IDs (e.g., invalid MongoDB ObjectId) should return 404 or 400
-        - Missing required fields should return 400
-        - Duplicate entries if uniqueness is implied
-    
-    4.  **Test DB Setup (CRITICAL):**
-        YOU MUST set up test database isolation:
-        - Use `mongodb-memory-server` for an in-memory MongoDB instance
-        - Connect to the in-memory DB in `beforeAll`
-        - Clear collections in `beforeEach` or `afterEach`
-        - Disconnect and stop the server in `afterAll`
-        - Import the Express `app` (NOT the server) for use with `supertest`
-        
-    5.  **Test Isolation:** Each test should be independent. Do not rely on test execution order.
-    
-    6.  **Package.json test script:** The `package.json` MUST have:
-        `"test": "npx jest --forceExit --detectOpenHandles"`
-        **NEVER use bare `jest`** — it won't be found on the PATH.
-    
-    **Output Format:**
-    Do NOT return JSON. Return the test files wrapped in XML-style tags:
-    
-    <file path="__tests__/todo.test.js">
-    const request = require('supertest');
-    const app = require('../app');
-    ...
-    </file>
-    
-    <framework>jest</framework>
-    
-    **Important:** - The 'path' must be relative.
-    - For Node.js, always use 'jest' as the framework.
-    - Do NOT include installation commands.
-    - Make sure `supertest` and `mongodb-memory-server` are in devDependencies in package.json.
-"""
-
-# =====================================================================
-# DEBUGGER PROFILES
-# =====================================================================
-_PYTHON_DEBUGGER_TAXONOMY = """
-    **EXPANDED ERROR TAXONOMY (MEMORIZE THIS):**
-    For each error type, apply the EXACT fix pattern:
-    
-    | Error Pattern | Root Cause | Fix |
-    |---|---|---|
-    | `ModuleNotFoundError: No module named 'X'` | Missing from requirements.txt OR wrong import path | Add to requirements.txt AND verify the import path matches the directory structure |
-    | `ImportError: cannot import name 'Y' from 'X'` | Y doesn't exist in module X (typo or wrong module) | Check the actual exports of module X, fix the import |
-    | `AttributeError: 'X' object has no attribute 'Y'` | Method/property doesn't exist on that class | Check class definition, fix the attribute name or add missing method |
-    | `TypeError: X() got an unexpected keyword argument 'Y'` | Function signature doesn't match the call | Align function parameters with call sites |
-    | `422 Unprocessable Entity` | Request body doesn't match Pydantic schema | Fix the test request payload OR the Pydantic schema |
-    | `404 Not Found` | Route not registered, wrong URL path, or httpx base_url wrong | Check `app.include_router()`, route prefix, and test client `base_url` |
-    | `ScopeMismatch` | Function-scoped fixture depends on session-scoped | Make all related fixtures the same scope |
-    | `fixture 'X' not found` | Missing conftest.py or fixture not defined there | Create/fix conftest.py with the fixture |
-    | `sqlalchemy.exc.OperationalError` | DB tables not created or wrong DB URL | Ensure `create_all()` runs before tests with correct engine |
-    | `RuntimeError: Event loop is closed` | Async test teardown issue | Use `pytest-asyncio` with correct scope, use `@pytest_asyncio.fixture` |
-    | `AssertionError: assert 200 == 201` | Wrong status code returned by endpoint | Check endpoint return, ensure `status_code=201` for POST/create |
-    | `pydantic.errors.PydanticUserError` | Using Pydantic V1 syntax with V2 | Use `ConfigDict`, `model_validate`, `from_attributes=True` |
-    | `assert None is not None` on `tzinfo` | SQLite strips timezone info from `DateTime(timezone=True)` | Remove `tzinfo` assertions in tests using SQLite, or use naive datetime comparisons |
-    | `assert 'url/' == 'url'` (trailing slash) | Pydantic `HttpUrl` normalizes URLs (adds trailing `/`) | Compare against `str(HttpUrl(...))` normalized form, not raw input |
-    | `assert 307 == 404` | FastAPI `redirect_slashes=True` (default) causes 307 redirect | Set `FastAPI(redirect_slashes=False)` or fix test expectations |
-    | `IntegrityError: UNIQUE constraint failed` | Test transaction isolation broken — `commit()` persists across tests | Use proper nested transaction pattern: connection → begin → bind session → rollback |
-    | Unhandled `Exception` causes raw 500 | Utility raises `Exception`, endpoint doesn't catch it as `HTTPException` | Wrap utility calls in try/except, raise `HTTPException(status_code=500)` |
-    
-    **CONSISTENCY VALIDATION (MANDATORY BEFORE OUTPUT):**
-    Before outputting files, verify ALL of these:
-    - [ ] requirements.txt includes every imported third-party package
-    - [ ] Every `from X import Y` resolves to an actual file and symbol
-    - [ ] async tests use `pytest-asyncio` and `asyncio_mode = auto` in pytest.ini
-    - [ ] conftest.py fixtures match the app structure (correct import path, correct DB setup)
-    - [ ] Environment variables in code match those in .env
-    - [ ] DB URLs in test conftest are separate from production .env
-    - [ ] All router prefixes match what tests expect
-    - [ ] All Pydantic schemas use V2 syntax (ConfigDict, from_attributes)
-    - [ ] Every `await` is on an async function, every async function is awaited
-    - [ ] No circular imports exist
-"""
-
-_NODE_DEBUGGER_TAXONOMY = """
-    **EXPANDED ERROR TAXONOMY (MEMORIZE THIS):**
-    For each error type, apply the EXACT fix pattern:
-    
-    | Error Pattern | Root Cause | Fix |
-    |---|---|---|
-    | `Error: Cannot find module 'X'` | Missing from package.json OR wrong require path | Add to package.json dependencies AND verify the require/import path |
-    | `TypeError: X is not a function` | Module doesn't export what you expect, or wrong import | Check module.exports / export, fix the import |
-    | `TypeError: Cannot read properties of undefined (reading 'X')` | Object is undefined/null at access time | Add null checks, verify async operations complete before access |
-    | `TypeError: X is not a constructor` | Trying to `new` something that isn't a class/constructor | Check if using default vs named export correctly |
-    | `MongooseError: Operation ... buffering timed out` | Mongoose not connected when query runs | Ensure `mongoose.connect()` completes before tests run (use beforeAll) |
-    | `MongoServerError: E11000 duplicate key` | Unique index violation, test data not cleaned | Clear collections in `beforeEach` / use fresh in-memory DB |
-    | `ValidationError: X: Path 'Y' is required` | Mongoose required field missing in request body | Fix the test payload to include all required fields |
-    | `CastError: Cast to ObjectId failed` | Invalid MongoDB ObjectId format in URL parameter | Add ObjectId validation in route handler, return 400 |
-    | `EADDRINUSE: address already in use` | Server already listening on the port | Don't call `app.listen()` in test files — import app, not server |
-    | `ECONNREFUSED` | Test trying to connect to a server that isn't running | Use supertest with app directly, don't make HTTP calls to localhost |
-    | `expect(received).toBe(expected)` status mismatch | Wrong status code returned by endpoint | Check route handler, status code sent in `res.status().json()` |
-    | `ReferenceError: X is not defined` | Variable/function used before declaration or not imported | Add missing require/import statement |
-    | `SyntaxError: Unexpected token` | JS syntax error in source file | Fix the syntax (missing brackets, commas, etc.) |
-    | `Jest did not exit` / open handles | DB connections or server not closed after tests | Add `afterAll` to disconnect DB and close server, use `--forceExit` |
-    | `connect ECONNREFUSED 127.0.0.1:27017` | Tests trying to use real MongoDB instead of in-memory | Use `mongodb-memory-server` in test setup |
-    
-    **CONSISTENCY VALIDATION (MANDATORY BEFORE OUTPUT):**
-    Before outputting files, verify ALL of these:
-    - [ ] package.json includes every `require()`'d third-party package
-    - [ ] Every `require('./X')` resolves to an actual file
-    - [ ] Test files import the Express `app`, not the `server`
-    - [ ] mongodb-memory-server is used for test DB isolation
-    - [ ] Environment variables in code match those in .env
-    - [ ] All routes are mounted with `app.use()` in the main app file
-    - [ ] Mongoose models are properly exported and imported
-    - [ ] Error handling middleware is present as the last `app.use()`
-    - [ ] All async route handlers have try/catch blocks
-    - [ ] No open DB connections or server handles after tests
-"""
-
-# =====================================================================
 # LANGUAGE PROFILES (Central Registry)
 # =====================================================================
 LANGUAGE_PROFILES = {
@@ -439,14 +241,8 @@ LANGUAGE_PROFILES = {
         "skip_extensions": (".lock", ".png", ".jpg", ".jpeg", ".gif", ".pyc", ".zip", ".tar", ".gz"),
         "package_file": "requirements.txt",
 
-        # Test frameworks
-        "default_test_framework": "pytest",
-        "test_frameworks": ["pytest", "unittest"],
-
         # Prompt injections
         "coder_rules": _PYTHON_CODER_RULES,
-        "tester_rules": _PYTHON_TESTER_RULES,
-        "debugger_taxonomy": _PYTHON_DEBUGGER_TAXONOMY,
 
         # Validator config
         "validator_checks": ["mandatory_files", "imports", "truncation", "test_db"],
@@ -473,14 +269,8 @@ LANGUAGE_PROFILES = {
         "skip_extensions": (".lock", ".png", ".jpg", ".jpeg", ".gif", ".zip", ".tar", ".gz", ".map"),
         "package_file": "package.json",
 
-        # Test frameworks
-        "default_test_framework": "jest",
-        "test_frameworks": ["jest", "mocha"],
-
         # Prompt injections
         "coder_rules": _NODE_CODER_RULES,
-        "tester_rules": _NODE_TESTER_RULES,
-        "debugger_taxonomy": _NODE_DEBUGGER_TAXONOMY,
 
         # Validator config
         "validator_checks": ["package_json", "truncation_js", "mandatory_files"],

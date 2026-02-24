@@ -11,7 +11,7 @@ from app.graph.flow import app as graph_app
 api = FastAPI(
     title="AutoDev AI API",
     description="Autonomous Backend Generator Agent",
-    version="1.0.0"
+    version="2.0.0"
 )
 
 # --- 1. CORS CONFIGURATION (Render & Localhost Support) ---
@@ -78,11 +78,7 @@ async def build_project(request: BuildRequest):
         "plan": [],
         "tech_decisions": {},
         "files": {},
-        "test_results": {},
-        "status": "started",
-        "debug_iterations": 0,
-        "test_files": {},
-        "errors": []
+        "fixes_applied": [],
     }
 
     async def event_generator():
@@ -95,20 +91,27 @@ async def build_project(request: BuildRequest):
         async for event in graph_app.astream(initial_state):
             for node_name, state_update in event.items():
                 
-                # Merge new data (files, plans, test results) into current_state
+                # Merge new data into current_state
                 current_state.update(state_update)
                 
                 # Yield a log message for the UI
                 log_msg = f"🤖 {node_name.upper()} Agent finished task."
                 yield json.dumps({"type": "log", "content": log_msg}) + "\n"
                 
-                # Yield specific logs
-                if node_name == "planner":
-                     yield json.dumps({"type": "log", "content": f"📋 Plan generated with {len(state_update.get('plan', []))} steps."}) + "\n"
-                elif node_name == "tester":
-                    results = state_update.get("test_results", {})
-                    status = "Passed" if results.get("tests_passed") else "Failed"
-                    yield json.dumps({"type": "log", "content": f"🧪 Tests {status}"}) + "\n"
+                # Yield specific logs per node
+                if node_name == "architect":
+                    yield json.dumps({"type": "log", "content": f"📋 Plan generated with {len(state_update.get('plan', []))} steps."}) + "\n"
+                elif node_name == "coder":
+                    num_files = len(state_update.get('files', {}))
+                    yield json.dumps({"type": "log", "content": f"💻 Generated {num_files} files."}) + "\n"
+                elif node_name == "fixer":
+                    fixes = state_update.get("fixes_applied", [])
+                    if fixes:
+                        yield json.dumps({"type": "log", "content": f"🔧 Applied {len(fixes)} fixes."}) + "\n"
+                        for fix in fixes[:10]:  # Show first 10 fixes
+                            yield json.dumps({"type": "log", "content": f"   ✅ {fix}"}) + "\n"
+                    else:
+                        yield json.dumps({"type": "log", "content": "✅ No issues found — code looks clean!"}) + "\n"
 
         # 2. Save & Zip Logic
         yield json.dumps({"type": "log", "content": "💾 Saving and Zipping project..."}) + "\n"
@@ -128,7 +131,7 @@ async def build_project(request: BuildRequest):
         summary = {
             "project_name": request.project_name,
             "tech_stack": current_state.get("tech_decisions", {}),
-            "test_results": current_state.get("test_results", {}),
+            "fixes_applied": current_state.get("fixes_applied", []),
             "download_url": download_url 
         }
         
