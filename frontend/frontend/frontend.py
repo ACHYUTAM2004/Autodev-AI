@@ -3,8 +3,9 @@ import httpx
 import json
 import os
 import logging
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from app.main import api as autodevapi
 
 logging.basicConfig(level=logging.INFO)
@@ -260,7 +261,22 @@ def index():
 # =========================
 
 def mount_autodev(app: FastAPI) -> FastAPI:
+    # 1. Mount the backend API
     app.mount("/autodev", autodevapi)
+
+    # 2. Serve static files from the "public" directory
+    # Note: The "public" directory is created during the build process
+    if os.path.exists("public"):
+        app.mount("/", StaticFiles(directory="public", html=True), name="static")
+    
+    # 3. Catch-all route for Client-Side Routing (Single Page App)
+    @app.get("/{rest_of_path:path}")
+    async def caught_all(request: Request, rest_of_path: str):
+        # If it's not an API call and file doesn't exist, serve index.html
+        if not rest_of_path.startswith("autodev") and os.path.exists("public/index.html"):
+            return FileResponse("public/index.html")
+        return {"detail": "Not Found"}
+
     return app
 
 app = rx.App(
