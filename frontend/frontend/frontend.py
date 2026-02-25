@@ -3,79 +3,109 @@ import httpx
 import json
 import os
 import logging
+import sys
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from app.main import api as autodevapi
 
+# --- Set up absolute pathing for production ---
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+sys.path.insert(0, project_root)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("autodev_deploy")
 
 # =========================
-# CINEMATIC DESIGN SYSTEM
+# V3: DEEP SPACE DESIGN SYSTEM
 # =========================
 
 STYLE_CSS = """
-@keyframes mesh-gradient {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-}
-
-@keyframes float {
-    0% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-    100% { transform: translateY(0px); }
-}
-
-@keyframes glow-pulse {
-    0% { box-shadow: 0 0 20px rgba(255,0,150,0.15); }
-    50% { box-shadow: 0 0 60px rgba(255,0,200,0.35); }
-    100% { box-shadow: 0 0 20px rgba(255,0,150,0.15); }
-}
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
 
 body {
-    background: radial-gradient(circle at 20% 20%, rgba(255,0,150,0.08), transparent 40%),
-                radial-gradient(circle at 80% 80%, rgba(0,100,255,0.08), transparent 40%),
-                #070b14;
+    background-color: #030712;
+    color: #f9fafb;
+    font-family: 'Inter', sans-serif;
+    overflow-x: hidden;
 }
 
-.mesh-bg {
-    background: linear-gradient(-45deg, #0f0c29, #1e1b4b, #1e3a8a, #3b0764);
-    background-size: 400% 400%;
-    animation: mesh-gradient 25s ease infinite;
+/* Subtle architectural grid */
+.bg-grid {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background-image: 
+        linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    z-index: -2;
+    mask-image: linear-gradient(to bottom, white 20%, transparent 100%);
+    -webkit-mask-image: linear-gradient(to bottom, white 20%, transparent 100%);
 }
 
-.glass-card {
-    backdrop-filter: blur(45px) saturate(220%);
-    -webkit-backdrop-filter: blur(45px) saturate(220%);
-    background: linear-gradient(145deg, rgba(15,15,25,0.9), rgba(10,10,20,0.95));
-    border: 1px solid rgba(255,255,255,0.06);
-    position: relative;
-    overflow: hidden;
-    animation: float 8s ease-in-out infinite;
+/* Massive, slow-moving atmospheric glows */
+@keyframes drift1 {
+    0% { transform: translate(0, 0) scale(1); }
+    50% { transform: translate(5%, 5%) scale(1.1); }
+    100% { transform: translate(0, 0) scale(1); }
+}
+@keyframes drift2 {
+    0% { transform: translate(0, 0) scale(1.1); }
+    50% { transform: translate(-5%, -5%) scale(1); }
+    100% { transform: translate(0, 0) scale(1.1); }
 }
 
-.glass-card::before {
-    content: "";
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(circle at top left, rgba(255,0,150,0.15), transparent 40%);
-    pointer-events: none;
+.glow-orb-1 {
+    position: fixed; top: -10vh; left: -10vw; width: 60vw; height: 60vw;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(99, 102, 241, 0.15) 0%, transparent 60%);
+    filter: blur(100px); z-index: -1;
+    animation: drift1 20s ease-in-out infinite;
 }
 
-.glow-button {
-    animation: glow-pulse 4s infinite ease-in-out;
+.glow-orb-2 {
+    position: fixed; bottom: -10vh; right: -10vw; width: 60vw; height: 60vw;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(14, 165, 233, 0.15) 0%, transparent 60%);
+    filter: blur(100px); z-index: -1;
+    animation: drift2 25s ease-in-out infinite;
 }
 
-.glow-button:hover {
-    transform: translateY(-4px) scale(1.02);
+/* Ultra-premium glassmorphism */
+.glass-panel {
+    background: rgba(15, 23, 42, 0.4);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* Magical Gradient Button */
+.btn-magic {
+    background: linear-gradient(135deg, #4f46e5 0%, #0ea5e9 100%);
+    color: white;
+    box-shadow: 0 4px 14px 0 rgba(79, 70, 229, 0.39);
     transition: all 0.3s ease;
+}
+.btn-magic:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(79, 70, 229, 0.6);
+}
+
+/* Clean IDE Terminal */
+.ide-terminal {
+    background: #0b0f19;
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: inset 0 2px 10px rgba(0,0,0,0.5);
+}
+.ide-header {
+    background: #111827;
+    border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 """
 
 # =========================
-# STATE (UNCHANGED LOGIC)
+# STATE (Functionally unchanged)
 # =========================
 
 class State(rx.State):
@@ -110,7 +140,8 @@ class State(rx.State):
             return
 
         self.is_building = True
-        self.logs = [f"🚀 Initializing build sequence for '{self.project_name}'..."]
+        self.logs = [f"[SYSTEM] Connecting to AutoDev Agentic Core..."]
+        self.logs.append(f"[SYSTEM] Initializing build sequence for '{self.project_name}'...")
         self.download_url = ""
         yield
 
@@ -140,152 +171,231 @@ class State(rx.State):
                                     self.download_url = f"/autodev/download/{path}"
                                 else:
                                     self.download_url = raw_url
-                                self.logs.append("✨ Build Sequence Complete!")
+                                self.logs.append("[SUCCESS] Architecture compiled and packaged successfully.")
                                 yield
                         except:
                             continue
         except Exception as e:
-            self.logs.append(f"❌ Critical Failure: {str(e)}")
+            self.logs.append(f"[ERROR] Agent synchronization lost: {str(e)}")
 
         self.is_building = False
 
 # =========================
-# UI
+# UI COMPONENTS
 # =========================
 
-def index():
-    return rx.center(
-        rx.el.style(STYLE_CSS),
-        rx.box(
+def form_field(label: str, placeholder: str, value_bind, on_change_bind, is_textarea: bool = False) -> rx.Component:
+    """Helper for a beautifully aligned form field."""
+    return rx.vstack(
+        rx.text(label, size="2", weight="medium", color="#94a3b8"),
+        rx.text_area(
+            placeholder=placeholder,
+            value=value_bind,
+            on_change=on_change_bind,
+            size="3",
+            variant="surface",
+            min_height="120px" if is_textarea else "auto",
+            width="100%",
+            radius="medium",
+        ) if is_textarea else rx.input(
+            placeholder=placeholder,
+            value=value_bind,
+            on_change=on_change_bind,
+            size="3",
+            variant="surface",
+            width="100%",
+            radius="medium",
+        ),
+        width="100%",
+        spacing="2",
+    )
+
+def log_terminal() -> rx.Component:
+    """The ultra-modern IDE console."""
+    return rx.box(
+        # Terminal Header
+        rx.hstack(
+            rx.hstack(
+                rx.box(width="10px", height="10px", bg="#ef4444", border_radius="50%"),
+                rx.box(width="10px", height="10px", bg="#eab308", border_radius="50%"),
+                rx.box(width="10px", height="10px", bg="#22c55e", border_radius="50%"),
+                spacing="2",
+            ),
+            rx.text("AutoDev Core Agent Output", font_family="'Inter', sans-serif", font_size="0.75em", color="#64748b", margin_left="1em", weight="medium"),
+            padding="10px 16px",
+            className="ide-header",
+            align_items="center",
+            border_top_radius="12px",
+        ),
+        # Log Scroll Area
+        rx.scroll_area(
             rx.vstack(
-                rx.heading(
-                    "AutoDev AI",
-                    size="9",
-                    weight="bold",
-                    background_image="linear-gradient(90deg,#ff006e,#8338ec,#3a86ff)",
-                    background_clip="text",
-                    color="transparent",
-                    letter_spacing="-1px",
-                ),
-                rx.text(
-                    "Autonomous Backend System Architect",
-                    color="#94a3b8",
-                ),
-                rx.divider(),
-
-                rx.input(
-                    placeholder="Project Name",
-                    value=State.project_name,
-                    on_change=State.set_project_name,
-                    size="3",
-                    radius="large",
-                ),
-
-                rx.input(
-                    placeholder="Preferred Tech Stack",
-                    value=State.tech_stack_input,
-                    on_change=State.set_tech_stack_input,
-                    size="3",
-                    radius="large",
-                ),
-
-                rx.text_area(
-                    placeholder="Describe what you want to build...",
-                    value=State.description,
-                    on_change=State.set_description,
-                    min_height="150px",
-                    radius="large",
-                ),
-
-                rx.button(
-                    "Launch System Build",
-                    on_click=State.start_build,
-                    loading=State.is_building,
-                    width="100%",
-                    size="4",
-                    className="glow-button",
-                    background="linear-gradient(90deg,#ff006e,#8338ec,#3a86ff)",
-                ),
-
-                rx.cond(
-                    State.download_url != "",
-                    rx.link(
-                        rx.button(
-                            "Download Source Code",
-                            width="100%",
-                            size="4",
-                            color_scheme="green",
+                rx.foreach(
+                    State.logs,
+                    lambda log: rx.text(
+                        rx.cond(
+                            log.contains("[ERROR]"),
+                            "🚨 " + log,
+                            rx.cond(
+                                log.contains("[SUCCESS]"),
+                                "✨ " + log,
+                                "➜  " + log
+                            )
                         ),
-                        href=State.download_url,
-                        is_external=True,
+                        font_family="'JetBrains Mono', monospace",
+                        font_size="0.8em",
+                        color=rx.cond(
+                            log.contains("[ERROR]"), 
+                            "#fca5a5", # Red for errors
+                            rx.cond(
+                                log.contains("[SUCCESS]"),
+                                "#6ee7b7", # Mint for success
+                                "#93c5fd"  # Soft blue for standard logs
+                            )
+                        ),
+                        line_height="1.6",
                     ),
                 ),
+                align_items="flex-start",
+                width="100%",
+                padding="2",
+            ),
+            height="320px",
+            padding="1em",
+            className="ide-terminal",
+            border_bottom_radius="12px",
+        ),
+        margin_top="2em",
+        width="100%",
+    )
 
-                rx.cond(
-                    State.logs,
-                    rx.box(
-                        rx.foreach(
-                            State.logs,
-                            lambda log: rx.text(
-                                log,
-                                font_family="'JetBrains Mono', monospace",
-                                font_size="0.85em",
-                                color="#c9d1d9",
-                            ),
+def index():
+    return rx.box(
+        # Inject CSS
+        rx.el.style(STYLE_CSS),
+        
+        # Background Elements
+        rx.box(className="bg-grid"),
+        rx.box(className="glow-orb-1"),
+        rx.box(className="glow-orb-2"),
+
+        # Main Content Centering
+        rx.center(
+            rx.box(
+                rx.vstack(
+                    # Header Elements
+                    rx.center(
+                        rx.icon(tag="bot", size=42, color="#0ea5e9", margin_bottom="0.5em"),
+                        rx.hstack(
+                            rx.heading("AutoDev", size="9", weight="bold", color="#f8fafc", letter_spacing="-1px"),
+                            rx.heading("AI", size="9", weight="bold", background_image="linear-gradient(135deg, #818cf8 0%, #38bdf8 100%)", background_clip="text", color="transparent", letter_spacing="-1px"),
+                            spacing="2",
+                            align_items="center",
                         ),
-                        margin_top="2em",
-                        padding="1.5em",
-                        border_radius="16px",
-                        bg="rgba(10,15,25,0.8)",
-                        border="1px solid rgba(255,255,255,0.05)",
+                        rx.text("Autonomous Backend Architect", size="4", color="#94a3b8", weight="medium", margin_top="0.2em"),
+                        direction="column",
+                        align_items="center",
+                        width="100%",
+                        margin_bottom="1.5em",
+                    ),
+
+                    rx.divider(opacity="0.1", margin_bottom="2em"),
+
+                    # Input Form
+                    rx.vstack(
+                        rx.hstack(
+                            rx.box(form_field("Project Name", "e.g. smart-todo-api", State.project_name, State.set_project_name), width="50%"),
+                            rx.box(form_field("Tech Stack Constraints", "e.g. Python, FastAPI, SQLite", State.tech_stack_input, State.set_tech_stack_input), width="50%"),
+                            spacing="4",
+                            width="100%",
+                        ),
+                        form_field("Architecture Description", "Describe your endpoints, database schemas, and business logic here...", State.description, State.set_description, is_textarea=True),
+                        spacing="5",
                         width="100%",
                     ),
-                ),
 
-                spacing="6",
-                width="100%",
+                    # Action Button
+                    rx.box(margin_y="0.5em"),
+                    rx.button(
+                        rx.icon(tag="cpu", size=18, margin_right="2"),
+                        "INITIALIZE SYSTEM BUILD",
+                        on_click=State.start_build,
+                        loading=State.is_building,
+                        width="100%",
+                        size="4",
+                        className="btn-magic",
+                        border_radius="8px",
+                    ),
+
+                    # Download Button (Conditional)
+                    rx.cond(
+                        State.download_url != "",
+                        rx.box(
+                            rx.link(
+                                rx.button(
+                                    rx.icon(tag="download", size=18, margin_right="2"),
+                                    "DOWNLOAD SOURCE ARCHIVE",
+                                    width="100%",
+                                    size="4",
+                                    color_scheme="jade",
+                                    variant="solid",
+                                    border_radius="8px",
+                                ),
+                                href=State.download_url,
+                                is_external=True,
+                            ),
+                            margin_top="1em",
+                            width="100%",
+                        ),
+                    ),
+
+                    # Terminal Output (Conditional)
+                    rx.cond(
+                        State.logs,
+                        log_terminal(),
+                    ),
+
+                    spacing="0",
+                    width="100%",
+                ),
+                width=["95%", "850px"],
+                padding=["2em", "3.5em"],
+                border_radius="24px",
+                className="glass-panel",
+                margin_y="4em",
             ),
-            width=["100%", "760px"],
-            padding="5em",
-            border_radius="36px",
-            className="glass-card",
+            min_height="100vh",
+            width="100vw",
         ),
-        min_height="100vh",
-        padding="2em",
-        className="mesh-bg",
-        font_family="'Outfit', sans-serif",
     )
 
 # =========================
-# APP
+# APP CONFIGURATION
 # =========================
 
 def mount_autodev(app: FastAPI) -> FastAPI:
-    # 1. Mount the backend API
     app.mount("/autodev", autodevapi)
 
-    # 2. Serve static files from the "public" directory
-    # Note: The "public" directory is created during the build process
     if os.path.exists("public"):
         app.mount("/", StaticFiles(directory="public", html=True), name="static")
     
-    # 3. Catch-all route for Client-Side Routing (Single Page App)
     async def caught_all(request: Request):
-        # Access the path from path_params
         rest_of_path = request.path_params.get("rest_of_path", "")
-        
-        # If it's not an API call and file doesn't exist, serve index.html
         if not rest_of_path.startswith("autodev") and os.path.exists("public/index.html"):
             return FileResponse("public/index.html")
         return JSONResponse({"detail": "Not Found"}, status_code=404)
 
     app.add_route("/{rest_of_path:path}", caught_all, methods=["GET"])
-
     return app
 
 app = rx.App(
-    theme=rx.theme(appearance="dark", accent_color="ruby", radius="large"),
+    theme=rx.theme(
+        appearance="dark", 
+        has_background=False, # We are providing our own background
+        radius="medium",
+        accent_color="indigo"
+    ),
     api_transformer=mount_autodev,
 )
 
-app.add_page(index, title="AutoDev AI | Autonomous Architect", on_load=State.reset_state)
+app.add_page(index, title="AutoDev AI | System Architect", on_load=State.reset_state)
