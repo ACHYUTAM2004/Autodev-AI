@@ -356,12 +356,11 @@ def index():
 
                     # Input Form uses a cleaner flex layout for better responsiveness
                     rx.vstack(
-                        rx.flex(
-                            rx.box(form_field("Project Name", "e.g. intelligent-api", State.project_name, State.set_project_name), flex="1"),
-                            rx.box(form_field("Tech Stack Constraints", "e.g. Python, FastAPI, Postgres", State.tech_stack_input, State.set_tech_stack_input), flex="1"),
+                        rx.hstack(
+                            rx.box(form_field("Project Name", "e.g. intelligent-api", State.project_name, State.set_project_name), width="50%"),
+                            rx.box(form_field("Tech Stack Constraints", "e.g. Python, FastAPI, Postgres", State.tech_stack_input, State.set_tech_stack_input), width="50%"),
                             spacing="5",
                             width="100%",
-                            direction=["column", "row"], # Stack on mobile, side-by-side on desktop
                         ),
                         rx.box(
                             form_field("Architecture Description", "Describe your endpoints, database schemas, and business logic here in detail...", State.description, State.set_description, is_textarea=True),
