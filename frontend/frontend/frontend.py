@@ -23,119 +23,131 @@ logger = logging.getLogger("autodev_deploy")
 STYLE_CSS = """
 @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
+:root {
+    --glass-bg: rgba(15, 23, 42, 0.65);
+    --glass-border: rgba(255, 255, 255, 0.08);
+    --accent-primary: #6366f1;
+    --accent-secondary: #0ea5e9;
+    --text-main: #f8fafc;
+    --text-dim: #94a3b8;
+}
+
 body {
-    background-color: #020617; /* Slate 950 */
-    color: #f8fafc; /* Slate 50 */
+    background-color: #020617;
+    color: var(--text-main);
     font-family: 'Outfit', sans-serif;
     overflow-x: hidden;
     margin: 0;
     padding: 0;
 }
 
-/* Subtle architectural grid */
+/* Animated Mesh Background */
+.bg-mesh {
+    position: fixed;
+    top: 0; left: 0; width: 100vw; height: 100vh;
+    background: 
+        radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.15) 0%, transparent 50%),
+        radial-gradient(circle at 50% 100%, rgba(168, 85, 247, 0.1) 0%, transparent 50%);
+    z-index: -2;
+}
+
 .bg-grid {
     position: fixed;
     top: 0; left: 0; width: 100vw; height: 100vh;
     background-image: 
-        linear-gradient(to right, rgba(255,255,255,0.02) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px);
-    background-size: 40px 40px;
-    z-index: -2;
-    mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
-    -webkit-mask-image: linear-gradient(to bottom, black 30%, transparent 100%);
-}
-
-/* Massive, slow-moving atmospheric glows */
-@keyframes drift1 {
-    0% { transform: translate(0, 0) scale(1); }
-    33% { transform: translate(3%, 4%) scale(1.05); }
-    66% { transform: translate(-2%, 2%) scale(0.95); }
-    100% { transform: translate(0, 0) scale(1); }
-}
-@keyframes drift2 {
-    0% { transform: translate(0, 0) scale(1.1); }
-    33% { transform: translate(-4%, -3%) scale(1); }
-    66% { transform: translate(2%, -4%) scale(1.15); }
-    100% { transform: translate(0, 0) scale(1.1); }
-}
-
-.glow-orb-1 {
-    position: fixed; top: -20vh; left: -10vw; width: 70vw; height: 70vw;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(99, 102, 241, 0.12) 0%, transparent 70%);
-    filter: blur(120px); z-index: -1;
-    animation: drift1 25s ease-in-out infinite alternate;
-}
-
-.glow-orb-2 {
-    position: fixed; bottom: -20vh; right: -10vw; width: 70vw; height: 70vw;
-    border-radius: 50%;
-    background: radial-gradient(circle, rgba(14, 165, 233, 0.12) 0%, transparent 70%);
-    filter: blur(120px); z-index: -1;
-    animation: drift2 30s ease-in-out infinite alternate;
+        linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    z-index: -1;
+    mask-image: radial-gradient(circle at center, black, transparent 80%);
 }
 
 /* Ultra-premium glassmorphism card */
 .glass-panel {
-    background: rgba(15, 23, 42, 0.6); /* Slate 900 */
-    backdrop-filter: blur(32px);
-    -webkit-backdrop-filter: blur(32px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: var(--glass-bg);
+    backdrop-filter: blur(40px) saturate(180%);
+    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    border: 1px solid var(--glass-border);
     box-shadow: 
-        0 25px 50px -12px rgba(0, 0, 0, 0.7), 
-        inset 0 1px 0 rgba(255, 255, 255, 0.1),
-        inset 0 0 20px rgba(255,255,255,0.02);
+        0 8px 32px 0 rgba(0, 0, 0, 0.8),
+        inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    position: relative;
+    overflow: hidden;
 }
 
-/* Input Overrides for premium feel */
-.rt-TextAreaInput, .rt-TextFieldInput {
-    background: rgba(30, 41, 59, 0.5) !important; /* Slate 800 */
-    border: 1px solid rgba(255,255,255,0.08) !important;
-    color: white !important;
-    transition: all 0.2s ease;
-    font-family: 'Outfit', sans-serif !important;
+.glass-panel::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
 }
+
+/* Input Overrides */
+.rt-TextAreaInput, .rt-TextFieldInput {
+    background: rgba(30, 41, 59, 0.4) !important;
+    border: 1px solid rgba(255,255,255,0.05) !important;
+    color: white !important;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    font-family: 'Outfit', sans-serif !important;
+    backdrop-filter: blur(10px);
+}
+
 .rt-TextAreaInput:focus, .rt-TextFieldInput:focus {
-    border-color: rgba(99, 102, 241, 0.6) !important;
-    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2) !important;
-    background: rgba(30, 41, 59, 0.8) !important;
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.15) !important;
+    background: rgba(30, 41, 59, 0.6) !important;
 }
 
 /* Magical Gradient Button */
 .btn-magic {
-    background: linear-gradient(135deg, #6366f1 0%, #0ea5e9 100%);
+    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
     color: white !important;
     border: none !important;
-    box-shadow: 
-        0 4px 14px 0 rgba(99, 102, 241, 0.4),
-        inset 0 1px 0 rgba(255, 255, 255, 0.2) !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    font-weight: 600 !important;
+    position: relative;
+    z-index: 1;
+    transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1) !important;
 }
+
+.btn-magic::after {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+    filter: blur(15px);
+    opacity: 0;
+    z-index: -1;
+    transition: opacity 0.4s ease;
+}
+
 .btn-magic:hover {
-    transform: translateY(-2px);
-    box-shadow: 
-        0 8px 25px -5px rgba(99, 102, 241, 0.6),
-        0 4px 10px -3px rgba(14, 165, 233, 0.5),
-        inset 0 1px 0 rgba(255, 255, 255, 0.3) !important;
-    filter: brightness(1.1);
+    transform: translateY(-2px) scale(1.01);
 }
-.btn-magic:active {
-    transform: translateY(1px);
+
+.btn-magic:hover::after {
+    opacity: 0.6;
 }
 
 /* Clean IDE Terminal */
 .ide-terminal {
-    background: rgba(2, 6, 23, 0.8) !important; /* Slate 950 */
-    border: 1px solid rgba(255,255,255,0.08);
-    box-shadow: inset 0 2px 15px rgba(0,0,0,0.8);
-    backdrop-filter: blur(10px);
+    background: rgba(2, 6, 23, 0.7) !important;
+    border: 1px solid var(--glass-border);
+    backdrop-filter: blur(20px);
 }
+
 .ide-header {
-    background: rgba(15, 23, 42, 0.95); /* Slate 900 */
-    border-bottom: 1px solid rgba(255,255,255,0.05);
+    background: rgba(15, 23, 42, 0.8);
+    border-bottom: 1px solid var(--glass-border);
+}
+
+@keyframes float {
+    0% { transform: translateY(0px); }
+    50% { transform: translateY(-10px); }
+    100% { transform: translateY(0px); }
+}
+
+.float-anim {
+    animation: float 6s ease-in-out infinite;
 }
 """
 
@@ -320,9 +332,8 @@ def index():
         rx.el.style(STYLE_CSS),
         
         # Background Elements
+        rx.box(className="bg-mesh"),
         rx.box(className="bg-grid"),
-        rx.box(className="glow-orb-1"),
-        rx.box(className="glow-orb-2"),
 
         # Main Content Centering
         rx.center(
@@ -338,6 +349,7 @@ def index():
                             border="1px solid rgba(255,255,255,0.05)",
                             box_shadow="inset 0 1px 0 rgba(255,255,255,0.1)",
                             margin_bottom="1em",
+                            className="float-anim",
                         ),
                         rx.hstack(
                             rx.heading("AutoDev", size="9", weight="bold", color="#f8fafc", letter_spacing="-2px"),
@@ -345,33 +357,33 @@ def index():
                             spacing="3",
                             align_items="center",
                         ),
-                        rx.text("Autonomous Backend Architect", size="4", color="#94a3b8", weight="medium", margin_top="0.5em", letter_spacing="0.05em", text_transform="uppercase"),
+                        rx.text("Autonomous Backend Architect", size="4", color="var(--text-dim)", weight="medium", margin_top="0.5em", letter_spacing="0.1em", text_transform="uppercase"),
                         direction="column",
                         align_items="center",
                         width="100%",
-                        margin_bottom="2em",
+                        margin_bottom="3em",
                     ),
 
-                    rx.divider(opacity="0.1", margin_bottom="2.5em"),
+                    rx.divider(opacity="0.05", margin_bottom="3em"),
 
-                    # Input Form uses a cleaner flex layout for better responsiveness
+                    # Input Form
                     rx.vstack(
                         rx.hstack(
                             rx.box(form_field("Project Name", "e.g. intelligent-api", State.project_name, State.set_project_name), width="50%"),
-                            rx.box(form_field("Tech Stack Constraints", "e.g. Python, FastAPI, Postgres", State.tech_stack_input, State.set_tech_stack_input), width="50%"),
-                            spacing="5",
+                            rx.box(form_field("Tech Stack", "e.g. FastAPI, Postgres", State.tech_stack_input, State.set_tech_stack_input), width="50%"),
+                            spacing="6",
                             width="100%",
                         ),
                         rx.box(
-                            form_field("Architecture Description", "Describe your endpoints, database schemas, and business logic here in detail...", State.description, State.set_description, is_textarea=True),
+                            form_field("Architecture Description", "Describe your endpoints, database schemas, and business logic...", State.description, State.set_description, is_textarea=True),
                             width="100%"
                         ),
-                        spacing="6",
+                        spacing="7",
                         width="100%",
                     ),
 
                     # Action Button
-                    rx.box(margin_y="1em", width="100%"),
+                    rx.box(margin_y="2em", width="100%"),
                     rx.button(
                         rx.icon(tag="cpu", size=20, margin_right="3"),
                         "INITIALIZE SYSTEM BUILD",
@@ -380,8 +392,8 @@ def index():
                         width="100%",
                         size="4",
                         className="btn-magic",
-                        border_radius="12px",
-                        padding="28px",
+                        border_radius="14px",
+                        padding="32px",
                     ),
 
                     # Download Button (Conditional)
@@ -396,14 +408,14 @@ def index():
                                     size="4",
                                     color_scheme="jade",
                                     variant="solid",
-                                    border_radius="12px",
-                                    padding="28px",
-                                    box_shadow="0 4px 14px 0 rgba(16, 185, 129, 0.39)",
+                                    border_radius="14px",
+                                    padding="32px",
+                                    box_shadow="0 10px 20px -5px rgba(16, 185, 129, 0.4)",
                                 ),
                                 href=State.download_url,
                                 is_external=True,
                             ),
-                            margin_top="1.5em",
+                            margin_top="2em",
                             width="100%",
                         ),
                     ),
@@ -418,8 +430,8 @@ def index():
                     width="100%",
                 ),
                 width=["95%", "900px"],
-                padding=["2em", "4em"],
-                border_radius="32px",
+                padding=["2.5em", "5em"],
+                border_radius="40px",
                 className="glass-panel",
                 margin_y="5em",
             ),
@@ -433,16 +445,25 @@ def index():
 # =========================
 
 def mount_autodev(app: FastAPI) -> FastAPI:
+    # Mount the backend API
     app.mount("/autodev", autodevapi)
 
-    if os.path.exists("public"):
-        app.mount("/", StaticFiles(directory="public", html=True), name="static")
+    # Serve static files if they exist (for production)
+    static_dir = "public"
+    if os.path.exists(static_dir):
+        app.mount("/static", StaticFiles(directory=static_dir), name="static")
     
     async def caught_all(request: Request):
-        rest_of_path = request.path_params.get("rest_of_path", "")
-        if not rest_of_path.startswith("autodev") and os.path.exists("public/index.html"):
-            return FileResponse("public/index.html")
-        return JSONResponse({"detail": "Not Found"}, status_code=404)
+        path = request.url.path
+        # Don't intercept API calls or static assets
+        if path.startswith("/autodev") or path.startswith("/_") or path.startswith("/static"):
+            return JSONResponse({"detail": f"Path {path} not found"}, status_code=404)
+        
+        index_path = os.path.join(static_dir, "index.html")
+        if os.path.exists(index_path):
+            return FileResponse(index_path)
+            
+        return JSONResponse({"detail": "AutoDev Frontend not found. Please build the project."}, status_code=404)
 
     app.add_route("/{rest_of_path:path}", caught_all, methods=["GET"])
     return app
