@@ -47,7 +47,7 @@ STYLE_CSS = """
 html, body {
     min-height: 100vh;
     width: 100%;
-    background: #040811;
+    background: #050a18;
     color: var(--text-primary);
     font-family: 'Inter', -apple-system, sans-serif;
     overflow-x: hidden;
@@ -67,27 +67,27 @@ html, body {
 .anim-bg::before {
     content: '';
     position: absolute;
-    top: -30%;
-    left: -20%;
-    width: 80vw;
-    height: 80vw;
-    background: radial-gradient(ellipse, rgba(99, 102, 241, 0.18) 0%, transparent 65%);
+    top: -20%;
+    left: -15%;
+    width: 70vw;
+    height: 70vw;
+    background: radial-gradient(ellipse, rgba(99, 102, 241, 0.45) 0%, rgba(99, 102, 241, 0.12) 45%, transparent 70%);
     animation: orb1 20s ease-in-out infinite alternate;
     border-radius: 50%;
-    filter: blur(60px);
+    filter: blur(40px);
 }
 
 .anim-bg::after {
     content: '';
     position: absolute;
-    bottom: -30%;
-    right: -20%;
-    width: 75vw;
-    height: 75vw;
-    background: radial-gradient(ellipse, rgba(14, 165, 233, 0.15) 0%, transparent 65%);
+    bottom: -20%;
+    right: -15%;
+    width: 65vw;
+    height: 65vw;
+    background: radial-gradient(ellipse, rgba(14, 165, 233, 0.4) 0%, rgba(14, 165, 233, 0.1) 45%, transparent 70%);
     animation: orb2 25s ease-in-out infinite alternate;
     border-radius: 50%;
-    filter: blur(60px);
+    filter: blur(40px);
 }
 
 .anim-orb3 {
@@ -95,11 +95,11 @@ html, body {
     top: 50%;
     left: 50%;
     transform: translate(-50%, -50%);
-    width: 50vw;
-    height: 50vw;
-    background: radial-gradient(ellipse, rgba(139, 92, 246, 0.08) 0%, transparent 65%);
+    width: 55vw;
+    height: 55vw;
+    background: radial-gradient(ellipse, rgba(139, 92, 246, 0.25) 0%, rgba(139, 92, 246, 0.06) 50%, transparent 75%);
     border-radius: 50%;
-    filter: blur(80px);
+    filter: blur(50px);
     animation: orb3 30s ease-in-out infinite alternate;
 }
 
@@ -158,15 +158,21 @@ html, body {
 .glass-card {
     width: 100%;
     max-width: 880px;
-    background: var(--glass-bg);
-    backdrop-filter: blur(48px) saturate(200%);
-    -webkit-backdrop-filter: blur(48px) saturate(200%);
+    background: linear-gradient(
+        135deg,
+        rgba(20, 30, 60, 0.82) 0%,
+        rgba(12, 18, 40, 0.88) 50%,
+        rgba(18, 26, 55, 0.82) 100%
+    );
+    backdrop-filter: blur(48px) saturate(180%);
+    -webkit-backdrop-filter: blur(48px) saturate(180%);
     border-radius: 32px;
-    border: 1px solid var(--glass-border);
+    border: 1px solid rgba(120, 130, 255, 0.22);
     box-shadow:
-        0 4px 6px -1px rgba(0,0,0,0.4),
-        0 32px 64px -16px rgba(0,0,0,0.7),
-        inset 0 1px 0 rgba(255,255,255,0.06);
+        0 0 0 1px rgba(255, 255, 255, 0.04) inset,
+        0 4px 6px -1px rgba(0,0,0,0.5),
+        0 32px 64px -8px rgba(0,0,0,0.8),
+        0 0 80px rgba(99, 102, 241, 0.08);
     padding: 56px 64px;
     position: relative;
     overflow: hidden;
@@ -175,9 +181,17 @@ html, body {
 .glass-card::before {
     content: '';
     position: absolute;
-    top: 0; left: 10%; right: 10%;
+    top: 0; left: 0; right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), rgba(99,102,241,0.3), rgba(255,255,255,0.15), transparent);
+    background: linear-gradient(90deg, transparent 0%, rgba(130, 140, 255, 0.6) 35%, rgba(56, 189, 248, 0.5) 65%, transparent 100%);
+}
+
+.glass-card::after {
+    content: '';
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent 20%, rgba(99, 102, 241, 0.15) 50%, transparent 80%);
 }
 
 @media (max-width: 768px) {
@@ -579,7 +593,7 @@ def index():
         rx.el.div(
             rx.el.div(
                 # ── Header ──────────────────────────────────
-                rx.vstack(
+                rx.el.div(
                     rx.el.div(
                         rx.icon(tag="bot", size=36, color="#818cf8"),
                         class_name="header-icon-wrapper",
@@ -588,25 +602,36 @@ def index():
                     rx.el.h1("AutoDev AI", class_name="header-title"),
                     rx.el.p(
                         "Describe your architecture. We'll build it.",
-                        style={"font_size": "15px", "color": "var(--text-secondary)", "text_align": "center", "margin_top": "4px"},
+                        class_name="header-subtitle",
+                        style={"font_size": "15px", "color": "var(--text-secondary)", "text_align": "center", "margin_top": "6px"},
                     ),
-                    align_items="center",
-                    spacing="0",
-                    width="100%",
-                    margin_bottom="40px",
+                    style={
+                        "display": "flex",
+                        "flex_direction": "column",
+                        "align_items": "center",
+                        "width": "100%",
+                        "margin_bottom": "40px",
+                        "gap": "0",
+                    },
                 ),
 
                 # ── Divider ──────────────────────────────────
                 rx.el.div(class_name="glass-divider"),
 
                 # ── Form ────────────────────────────────────
-                rx.vstack(
-                    rx.hstack(
+                rx.el.div(
+                    # Row 1: two-column inputs
+                    rx.el.div(
                         form_field("Project Name", "e.g.  intelligent-api", State.project_name, State.set_project_name),
                         form_field("Tech Stack", "e.g.  FastAPI · PostgreSQL · Redis", State.tech_stack_input, State.set_tech_stack_input),
-                        spacing="5",
-                        width="100%",
+                        style={
+                            "display": "flex",
+                            "flex_direction": "row",
+                            "gap": "20px",
+                            "width": "100%",
+                        },
                     ),
+                    # Row 2: full-width textarea
                     form_field(
                         "Architecture Description",
                         "Describe your endpoints, database schemas, auth strategy, and business logic...",
@@ -614,8 +639,12 @@ def index():
                         State.set_description,
                         is_textarea=True,
                     ),
-                    spacing="5",
-                    width="100%",
+                    style={
+                        "display": "flex",
+                        "flex_direction": "column",
+                        "gap": "20px",
+                        "width": "100%",
+                    },
                 ),
 
                 # ── Build Button ─────────────────────────────
