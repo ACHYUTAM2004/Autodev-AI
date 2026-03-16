@@ -10,9 +10,8 @@ import reflex as rx
 import httpx
 import json
 import logging
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
 from app.main import api as autodevapi
 
 logging.basicConfig(level=logging.INFO)
@@ -719,22 +718,17 @@ def index():
 # =========================
 
 def mount_autodev(app: FastAPI) -> FastAPI:
+    # 1. Mount the backend API for /autodev/build and /autodev/download
     app.mount("/autodev", autodevapi)
 
+    # 2. Serve the exported static frontend from public/
+    #    Using html=True so that public/index.html is served for "/"
+    #    IMPORTANT: app.mount() is checked AFTER regular routes in Starlette,
+    #    so Reflex's internal routes (/_event WebSocket, etc.) are matched first.
     static_dir = "public"
     if os.path.exists(static_dir):
-        app.mount("/static", StaticFiles(directory=static_dir), name="static")
+        app.mount("/", StaticFiles(directory=static_dir, html=True), name="static_frontend")
 
-    async def caught_all(request: Request):
-        path = request.url.path
-        if path.startswith("/autodev") or path.startswith("/_") or path.startswith("/static"):
-            return JSONResponse({"detail": f"Path {path} not found"}, status_code=404)
-        index_path = os.path.join(static_dir, "index.html")
-        if os.path.exists(index_path):
-            return FileResponse(index_path)
-        return JSONResponse({"detail": "Frontend not built yet."}, status_code=404)
-
-    app.add_route("/{rest_of_path:path}", caught_all, methods=["GET"])
     return app
 
 app = rx.App(
