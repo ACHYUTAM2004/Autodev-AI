@@ -1,154 +1,400 @@
+import os
+import sys
+
+# --- MUST be first: add project root to path so 'app' module is found ---
+project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+if project_root not in sys.path:
+    sys.path.insert(0, project_root)
+
 import reflex as rx
 import httpx
 import json
-import os
 import logging
-import sys
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, JSONResponse
 from app.main import api as autodevapi
 
-# --- Set up absolute pathing for production ---
-project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-sys.path.insert(0, project_root)
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("autodev_deploy")
 
 # =========================
-# V3: DEEP SPACE DESIGN SYSTEM
+# PREMIUM GLASS UI DESIGN SYSTEM
 # =========================
 
 STYLE_CSS = """
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600&display=swap');
 
-:root {
-    --glass-bg: rgba(15, 23, 42, 0.65);
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --accent-primary: #6366f1;
-    --accent-secondary: #0ea5e9;
-    --text-main: #f8fafc;
-    --text-dim: #94a3b8;
-}
-
-body {
-    background-color: #020617;
-    color: var(--text-main);
-    font-family: 'Outfit', sans-serif;
-    overflow-x: hidden;
+*, *::before, *::after {
+    box-sizing: border-box;
     margin: 0;
     padding: 0;
 }
 
-/* Animated Mesh Background */
-.bg-mesh {
-    position: fixed;
-    top: 0; left: 0; width: 100vw; height: 100vh;
-    background: 
-        radial-gradient(circle at 0% 0%, rgba(99, 102, 241, 0.15) 0%, transparent 50%),
-        radial-gradient(circle at 100% 0%, rgba(14, 165, 233, 0.15) 0%, transparent 50%),
-        radial-gradient(circle at 50% 100%, rgba(168, 85, 247, 0.1) 0%, transparent 50%);
-    z-index: -2;
+:root {
+    --indigo: #6366f1;
+    --sky: #0ea5e9;
+    --violet: #8b5cf6;
+    --glass-bg: rgba(12, 20, 40, 0.72);
+    --glass-border: rgba(255, 255, 255, 0.07);
+    --glass-light: rgba(255, 255, 255, 0.03);
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-muted: #475569;
+    --accent: #6366f1;
 }
 
+html, body {
+    min-height: 100vh;
+    width: 100%;
+    background: #040811;
+    color: var(--text-primary);
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* =================== BACKGROUND =================== */
+.anim-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.anim-bg::before {
+    content: '';
+    position: absolute;
+    top: -30%;
+    left: -20%;
+    width: 80vw;
+    height: 80vw;
+    background: radial-gradient(ellipse, rgba(99, 102, 241, 0.18) 0%, transparent 65%);
+    animation: orb1 20s ease-in-out infinite alternate;
+    border-radius: 50%;
+    filter: blur(60px);
+}
+
+.anim-bg::after {
+    content: '';
+    position: absolute;
+    bottom: -30%;
+    right: -20%;
+    width: 75vw;
+    height: 75vw;
+    background: radial-gradient(ellipse, rgba(14, 165, 233, 0.15) 0%, transparent 65%);
+    animation: orb2 25s ease-in-out infinite alternate;
+    border-radius: 50%;
+    filter: blur(60px);
+}
+
+.anim-orb3 {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 50vw;
+    height: 50vw;
+    background: radial-gradient(ellipse, rgba(139, 92, 246, 0.08) 0%, transparent 65%);
+    border-radius: 50%;
+    filter: blur(80px);
+    animation: orb3 30s ease-in-out infinite alternate;
+}
+
+@keyframes orb1 {
+    0%   { transform: translate(0, 0) scale(1); }
+    50%  { transform: translate(5%, 8%) scale(1.1); }
+    100% { transform: translate(-3%, 5%) scale(0.95); }
+}
+@keyframes orb2 {
+    0%   { transform: translate(0, 0) scale(1.1); }
+    50%  { transform: translate(-6%, -5%) scale(1); }
+    100% { transform: translate(4%, -8%) scale(1.15); }
+}
+@keyframes orb3 {
+    0%   { transform: translate(-50%, -50%) scale(1); opacity: 0.8; }
+    100% { transform: translate(-50%, -50%) scale(1.3); opacity: 0.4; }
+}
+
+.bg-noise {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-repeat: repeat;
+    background-size: 128px 128px;
+}
+
+/* =================== GRID LINES =================== */
 .bg-grid {
     position: fixed;
-    top: 0; left: 0; width: 100vw; height: 100vh;
-    background-image: 
-        linear-gradient(to right, rgba(255,255,255,0.03) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(255,255,255,0.03) 1px, transparent 1px);
-    background-size: 50px 50px;
-    z-index: -1;
-    mask-image: radial-gradient(circle at center, black, transparent 80%);
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    background-image:
+        linear-gradient(to right, rgba(255,255,255,0.025) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 56px 56px;
+    mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 20%, transparent 100%);
+    -webkit-mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black 20%, transparent 100%);
 }
 
-/* Ultra-premium glassmorphism card */
-.glass-panel {
+/* =================== LAYOUT =================== */
+.page-wrapper {
+    position: relative;
+    z-index: 10;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 60px 20px;
+}
+
+/* =================== GLASS CARD =================== */
+.glass-card {
+    width: 100%;
+    max-width: 880px;
     background: var(--glass-bg);
-    backdrop-filter: blur(40px) saturate(180%);
-    -webkit-backdrop-filter: blur(40px) saturate(180%);
+    backdrop-filter: blur(48px) saturate(200%);
+    -webkit-backdrop-filter: blur(48px) saturate(200%);
+    border-radius: 32px;
     border: 1px solid var(--glass-border);
-    box-shadow: 
-        0 8px 32px 0 rgba(0, 0, 0, 0.8),
-        inset 0 0 0 1px rgba(255, 255, 255, 0.05);
+    box-shadow:
+        0 4px 6px -1px rgba(0,0,0,0.4),
+        0 32px 64px -16px rgba(0,0,0,0.7),
+        inset 0 1px 0 rgba(255,255,255,0.06);
+    padding: 56px 64px;
     position: relative;
     overflow: hidden;
 }
 
-.glass-panel::before {
-    content: "";
+.glass-card::before {
+    content: '';
     position: absolute;
-    top: 0; left: 0; right: 0; height: 1px;
-    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+    top: 0; left: 10%; right: 10%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), rgba(99,102,241,0.3), rgba(255,255,255,0.15), transparent);
 }
 
-/* Input Overrides */
-.rt-TextAreaInput, .rt-TextFieldInput {
-    background: rgba(30, 41, 59, 0.4) !important;
-    border: 1px solid rgba(255,255,255,0.05) !important;
+@media (max-width: 768px) {
+    .glass-card {
+        padding: 36px 28px;
+        border-radius: 24px;
+    }
+}
+
+/* =================== HEADER =================== */
+.header-icon-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 22px;
+    background: linear-gradient(135deg, rgba(99,102,241,0.25) 0%, rgba(14,165,233,0.15) 100%);
+    border: 1px solid rgba(99,102,241,0.3);
+    box-shadow:
+        0 0 0 1px rgba(255,255,255,0.04) inset,
+        0 8px 24px rgba(99,102,241,0.2);
+    margin: 0 auto 24px;
+    animation: float-icon 5s ease-in-out infinite;
+}
+
+@keyframes float-icon {
+    0%, 100% { transform: translateY(0px); box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 8px 24px rgba(99,102,241,0.2); }
+    50%       { transform: translateY(-8px); box-shadow: 0 0 0 1px rgba(255,255,255,0.04) inset, 0 20px 40px rgba(99,102,241,0.3); }
+}
+
+.header-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 14px;
+    border-radius: 100px;
+    background: rgba(99,102,241,0.12);
+    border: 1px solid rgba(99,102,241,0.25);
+    color: #a5b4fc;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+}
+
+.header-title {
+    font-size: clamp(2.5rem, 5vw, 3.8rem);
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1;
+    text-align: center;
+    margin-bottom: 12px;
+    background: linear-gradient(135deg, #f1f5f9 0%, #cbd5e1 40%, #818cf8 70%, #38bdf8 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.header-subtitle {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    text-align: center;
+    margin-bottom: 0;
+}
+
+/* =================== DIVIDER =================== */
+.glass-divider {
+    width: 100%;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--glass-border), transparent);
+    margin: 40px 0;
+}
+
+/* =================== FORM FIELDS =================== */
+.field-label {
+    font-size: 11.5px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--text-secondary);
+    margin-bottom: 8px;
+    display: block;
+}
+
+.rt-TextFieldInput, .rt-TextAreaInput {
+    background: rgba(255, 255, 255, 0.04) !important;
+    border: 1px solid rgba(255, 255, 255, 0.08) !important;
+    border-radius: 12px !important;
+    color: var(--text-primary) !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 14px !important;
+    transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease !important;
+    padding: 12px 16px !important;
+}
+.rt-TextFieldInput:hover, .rt-TextAreaInput:hover {
+    border-color: rgba(255,255,255,0.14) !important;
+    background: rgba(255, 255, 255, 0.06) !important;
+}
+.rt-TextFieldInput:focus, .rt-TextAreaInput:focus {
+    border-color: rgba(99, 102, 241, 0.5) !important;
+    box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.12), 0 4px 12px rgba(0,0,0,0.2) !important;
+    background: rgba(99, 102, 241, 0.05) !important;
+    outline: none !important;
+}
+
+/* =================== BUTTON =================== */
+.btn-build {
+    position: relative;
+    width: 100%;
+    padding: 18px 32px !important;
+    border-radius: 14px !important;
+    border: none !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
+    cursor: pointer;
+    overflow: hidden;
+    background: linear-gradient(135deg, #6366f1 0%, #4f46e5 40%, #7c3aed 100%) !important;
     color: white !important;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-    font-family: 'Outfit', sans-serif !important;
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.15) inset,
+        0 8px 20px rgba(99, 102, 241, 0.35),
+        0 24px 48px rgba(99, 102, 241, 0.15) !important;
+    transition: transform 0.2s ease, box-shadow 0.25s ease, filter 0.15s ease !important;
+}
+.btn-build::before {
+    content: '';
+    position: absolute;
+    top: 0; left: -100%;
+    width: 100%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    transition: left 0.5s ease;
+}
+.btn-build:hover {
+    transform: translateY(-2px) !important;
+    filter: brightness(1.1) !important;
+    box-shadow:
+        0 1px 0 rgba(255,255,255,0.2) inset,
+        0 12px 32px rgba(99, 102, 241, 0.5),
+        0 32px 56px rgba(99, 102, 241, 0.2) !important;
+}
+.btn-build:hover::before { left: 100%; }
+.btn-build:active { transform: translateY(0px) !important; filter: brightness(0.95) !important; }
+
+.btn-download {
+    position: relative;
+    width: 100%;
+    padding: 18px 32px !important;
+    border-radius: 14px !important;
+    border: 1px solid rgba(16, 185, 129, 0.3) !important;
+    font-family: 'Inter', sans-serif !important;
+    font-size: 13px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0.12em !important;
+    text-transform: uppercase !important;
+    background: linear-gradient(135deg, rgba(16,185,129,0.2) 0%, rgba(5,150,105,0.25) 100%) !important;
+    color: #34d399 !important;
+    box-shadow: 0 8px 24px rgba(16,185,129,0.15) !important;
+    transition: transform 0.2s ease, box-shadow 0.25s ease, filter 0.15s ease !important;
+}
+.btn-download:hover {
+    transform: translateY(-2px) !important;
+    filter: brightness(1.1) !important;
+    box-shadow: 0 16px 40px rgba(16, 185, 129, 0.3) !important;
+}
+
+/* =================== TERMINAL =================== */
+.terminal-wrap {
+    border-radius: 18px;
+    overflow: hidden;
+    border: 1px solid rgba(255,255,255,0.07);
+    box-shadow: 0 20px 48px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+    margin-top: 36px;
+}
+
+.terminal-header {
+    background: rgba(15, 23, 42, 0.9);
+    border-bottom: 1px solid rgba(255,255,255,0.05);
+    padding: 14px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.dot-red   { width: 12px; height: 12px; border-radius: 50%; background: #ff5f56; box-shadow: 0 0 6px rgba(255,95,86,0.6); }
+.dot-yellow{ width: 12px; height: 12px; border-radius: 50%; background: #ffbd2e; box-shadow: 0 0 6px rgba(255,189,46,0.6); }
+.dot-green { width: 12px; height: 12px; border-radius: 50%; background: #27c93f; box-shadow: 0 0 6px rgba(39,201,63,0.6); }
+
+.terminal-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    font-weight: 500;
+    color: #475569;
+    margin-left: 12px;
+    letter-spacing: 0.05em;
+}
+
+.terminal-body {
+    background: rgba(2, 6, 23, 0.85) !important;
+    padding: 20px 24px !important;
+    min-height: 260px;
+    max-height: 380px;
+    overflow-y: auto;
     backdrop-filter: blur(10px);
 }
 
-.rt-TextAreaInput:focus, .rt-TextFieldInput:focus {
-    border-color: rgba(99, 102, 241, 0.5) !important;
-    box-shadow: 0 0 20px rgba(99, 102, 241, 0.15) !important;
-    background: rgba(30, 41, 59, 0.6) !important;
-}
-
-/* Magical Gradient Button */
-.btn-magic {
-    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-    color: white !important;
-    border: none !important;
-    position: relative;
-    z-index: 1;
-    transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1) !important;
-}
-
-.btn-magic::after {
-    content: "";
-    position: absolute;
-    top: 0; left: 0; width: 100%; height: 100%;
-    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-    filter: blur(15px);
-    opacity: 0;
-    z-index: -1;
-    transition: opacity 0.4s ease;
-}
-
-.btn-magic:hover {
-    transform: translateY(-2px) scale(1.01);
-}
-
-.btn-magic:hover::after {
-    opacity: 0.6;
-}
-
-/* Clean IDE Terminal */
-.ide-terminal {
-    background: rgba(2, 6, 23, 0.7) !important;
-    border: 1px solid var(--glass-border);
-    backdrop-filter: blur(20px);
-}
-
-.ide-header {
-    background: rgba(15, 23, 42, 0.8);
-    border-bottom: 1px solid var(--glass-border);
-}
-
-@keyframes float {
-    0% { transform: translateY(0px); }
-    50% { transform: translateY(-10px); }
-    100% { transform: translateY(0px); }
-}
-
-.float-anim {
-    animation: float 6s ease-in-out infinite;
-}
+.log-line-error   { color: #f87171 !important; }
+.log-line-success { color: #4ade80 !important; }
+.log-line-system  { color: #c4b5fd !important; }
+.log-line-default { color: #7dd3fc !important; }
 """
 
 # =========================
@@ -232,16 +478,15 @@ class State(rx.State):
 # =========================
 
 def form_field(label: str, placeholder: str, value_bind, on_change_bind, is_textarea: bool = False) -> rx.Component:
-    """Helper for a beautifully aligned form field with enhanced typography."""
     return rx.vstack(
-        rx.text(label, size="2", weight="bold", color="#cbd5e1", letter_spacing="0.02em"),
+        rx.el.span(label, class_name="field-label"),
         rx.text_area(
             placeholder=placeholder,
             value=value_bind,
             on_change=on_change_bind,
             size="3",
             variant="surface",
-            min_height="140px" if is_textarea else "auto",
+            min_height="148px",
             width="100%",
             radius="large",
         ) if is_textarea else rx.input(
@@ -255,26 +500,21 @@ def form_field(label: str, placeholder: str, value_bind, on_change_bind, is_text
         ),
         width="100%",
         spacing="2",
+        align_items="flex-start",
     )
 
+
 def log_terminal() -> rx.Component:
-    """The ultra-modern IDE console with macOS-style window controls."""
     return rx.box(
-        # Terminal Header
-        rx.hstack(
-            rx.hstack(
-                rx.box(width="12px", height="12px", bg="#ff5f56", border_radius="50%", box_shadow="0 0 4px rgba(255,95,86,0.5)"),
-                rx.box(width="12px", height="12px", bg="#ffbd2e", border_radius="50%", box_shadow="0 0 4px rgba(255,189,46,0.5)"),
-                rx.box(width="12px", height="12px", bg="#27c93f", border_radius="50%", box_shadow="0 0 4px rgba(39,201,63,0.5)"),
-                spacing="3",
-            ),
-            rx.text("autodev-core-agent ~ zsh", font_family="'JetBrains Mono', monospace", font_size="0.75em", color="#64748b", margin_left="1.5em", weight="medium"),
-            padding="12px 20px",
-            className="ide-header",
-            align_items="center",
-            border_top_radius="16px",
+        # Header bar
+        rx.el.div(
+            rx.el.div(class_name="dot-red"),
+            rx.el.div(class_name="dot-yellow"),
+            rx.el.div(class_name="dot-green"),
+            rx.el.span("autodev-core  ~  agent-stream", class_name="terminal-title"),
+            class_name="terminal-header",
         ),
-        # Log Scroll Area
+        # Log body
         rx.scroll_area(
             rx.vstack(
                 rx.foreach(
@@ -282,161 +522,141 @@ def log_terminal() -> rx.Component:
                     lambda log: rx.text(
                         rx.cond(
                             log.contains("[ERROR]"),
-                            "🚨 " + log,
+                            "🚨  " + log,
                             rx.cond(
                                 log.contains("[SUCCESS]"),
-                                "✨ " + log,
+                                "✅  " + log,
                                 rx.cond(
                                     log.contains("[SYSTEM]"),
-                                    "⚡ " + log,
-                                    "➜  " + log
+                                    "⚡  " + log,
+                                    "›  " + log
                                 )
                             )
                         ),
                         font_family="'JetBrains Mono', monospace",
-                        font_size="0.85em",
+                        font_size="12.5px",
                         color=rx.cond(
-                            log.contains("[ERROR]"), 
-                            "#fca5a5", # Red for errors
+                            log.contains("[ERROR]"), "#f87171",
                             rx.cond(
-                                log.contains("[SUCCESS]"),
-                                "#6ee7b7", # Mint for success
+                                log.contains("[SUCCESS]"), "#4ade80",
                                 rx.cond(
-                                    log.contains("[SYSTEM]"),
-                                    "#c4b5fd", # Purple for system messages
-                                    "#bae6fd"  # Soft blue for standard logs
+                                    log.contains("[SYSTEM]"), "#c4b5fd",
+                                    "#7dd3fc"
                                 )
                             )
                         ),
-                        line_height="1.7",
-                        letter_spacing="-0.01em",
+                        line_height="1.9",
+                        white_space="pre-wrap",
+                        word_break="break-all",
                     ),
                 ),
                 align_items="flex-start",
                 width="100%",
-                padding="2",
+                spacing="0",
             ),
-            height="340px",
-            padding="1.5em",
-            className="ide-terminal",
-            border_bottom_radius="16px",
+            type="auto",
+            class_name="terminal-body",
         ),
-        margin_top="2.5em",
+        class_name="terminal-wrap",
         width="100%",
-        box_shadow="0 20px 40px -15px rgba(0,0,0,0.5)",
     )
+
 
 def index():
     return rx.box(
         # Inject CSS
         rx.el.style(STYLE_CSS),
-        
-        # Background Elements
-        rx.box(className="bg-mesh"),
-        rx.box(className="bg-grid"),
 
-        # Main Content Centering
-        rx.center(
-            rx.box(
+        # Animated background
+        rx.el.div(
+            rx.el.div(class_name="anim-orb3"),
+            class_name="anim-bg",
+        ),
+        rx.el.div(class_name="bg-noise"),
+        rx.el.div(class_name="bg-grid"),
+
+        # Page wrapper — horizontally & vertically centered
+        rx.el.div(
+            rx.el.div(
+                # ── Header ──────────────────────────────────
                 rx.vstack(
-                    # Header Elements
-                    rx.center(
-                        rx.box(
-                            rx.icon(tag="bot", size=48, color="#38bdf8"),
-                            background="rgba(15, 23, 42, 0.5)",
-                            padding="16px",
-                            border_radius="24px",
-                            border="1px solid rgba(255,255,255,0.05)",
-                            box_shadow="inset 0 1px 0 rgba(255,255,255,0.1)",
-                            margin_bottom="1em",
-                            className="float-anim",
-                        ),
-                        rx.hstack(
-                            rx.heading("AutoDev", size="9", weight="bold", color="#f8fafc", letter_spacing="-2px"),
-                            rx.heading("AI", size="9", weight="bold", background_image="linear-gradient(135deg, #818cf8 0%, #38bdf8 100%)", background_clip="text", color="transparent", letter_spacing="-2px"),
-                            spacing="3",
-                            align_items="center",
-                        ),
-                        rx.text("Autonomous Backend Architect", size="4", color="var(--text-dim)", weight="medium", margin_top="0.5em", letter_spacing="0.1em", text_transform="uppercase"),
-                        direction="column",
-                        align_items="center",
-                        width="100%",
-                        margin_bottom="3em",
+                    rx.el.div(
+                        rx.icon(tag="bot", size=36, color="#818cf8"),
+                        class_name="header-icon-wrapper",
                     ),
-
-                    rx.divider(opacity="0.05", margin_bottom="3em"),
-
-                    # Input Form
-                    rx.vstack(
-                        rx.hstack(
-                            rx.box(form_field("Project Name", "e.g. intelligent-api", State.project_name, State.set_project_name), width="50%"),
-                            rx.box(form_field("Tech Stack", "e.g. FastAPI, Postgres", State.tech_stack_input, State.set_tech_stack_input), width="50%"),
-                            spacing="6",
-                            width="100%",
-                        ),
-                        rx.box(
-                            form_field("Architecture Description", "Describe your endpoints, database schemas, and business logic...", State.description, State.set_description, is_textarea=True),
-                            width="100%"
-                        ),
-                        spacing="7",
-                        width="100%",
+                    rx.el.div("✦  Autonomous Backend Architect  ✦", class_name="header-badge"),
+                    rx.el.h1("AutoDev AI", class_name="header-title"),
+                    rx.el.p(
+                        "Describe your architecture. We'll build it.",
+                        style={"font_size": "15px", "color": "var(--text-secondary)", "text_align": "center", "margin_top": "4px"},
                     ),
-
-                    # Action Button
-                    rx.box(margin_y="2em", width="100%"),
-                    rx.button(
-                        rx.icon(tag="cpu", size=20, margin_right="3"),
-                        "INITIALIZE SYSTEM BUILD",
-                        on_click=State.start_build,
-                        loading=State.is_building,
-                        width="100%",
-                        size="4",
-                        className="btn-magic",
-                        border_radius="14px",
-                        padding="32px",
-                    ),
-
-                    # Download Button (Conditional)
-                    rx.cond(
-                        State.download_url != "",
-                        rx.box(
-                            rx.link(
-                                rx.button(
-                                    rx.icon(tag="download", size=20, margin_right="3"),
-                                    "DOWNLOAD SOURCE ARCHIVE",
-                                    width="100%",
-                                    size="4",
-                                    color_scheme="jade",
-                                    variant="solid",
-                                    border_radius="14px",
-                                    padding="32px",
-                                    box_shadow="0 10px 20px -5px rgba(16, 185, 129, 0.4)",
-                                ),
-                                href=State.download_url,
-                                is_external=True,
-                            ),
-                            margin_top="2em",
-                            width="100%",
-                        ),
-                    ),
-
-                    # Terminal Output (Conditional)
-                    rx.cond(
-                        State.logs,
-                        log_terminal(),
-                    ),
-
+                    align_items="center",
                     spacing="0",
                     width="100%",
+                    margin_bottom="40px",
                 ),
-                width=["95%", "900px"],
-                padding=["2.5em", "5em"],
-                border_radius="40px",
-                className="glass-panel",
-                margin_y="5em",
+
+                # ── Divider ──────────────────────────────────
+                rx.el.div(class_name="glass-divider"),
+
+                # ── Form ────────────────────────────────────
+                rx.vstack(
+                    rx.hstack(
+                        form_field("Project Name", "e.g.  intelligent-api", State.project_name, State.set_project_name),
+                        form_field("Tech Stack", "e.g.  FastAPI · PostgreSQL · Redis", State.tech_stack_input, State.set_tech_stack_input),
+                        spacing="5",
+                        width="100%",
+                    ),
+                    form_field(
+                        "Architecture Description",
+                        "Describe your endpoints, database schemas, auth strategy, and business logic...",
+                        State.description,
+                        State.set_description,
+                        is_textarea=True,
+                    ),
+                    spacing="5",
+                    width="100%",
+                ),
+
+                # ── Build Button ─────────────────────────────
+                rx.box(height="32px"),
+                rx.button(
+                    rx.icon(tag="zap", size=18, style={"margin_right": "10px"}),
+                    "Initialize System Build",
+                    on_click=State.start_build,
+                    loading=State.is_building,
+                    width="100%",
+                    class_name="btn-build",
+                ),
+
+                # ── Download Button (conditional) ─────────────
+                rx.cond(
+                    State.download_url != "",
+                    rx.box(
+                        rx.box(height="16px"),
+                        rx.link(
+                            rx.button(
+                                rx.icon(tag="download", size=18, style={"margin_right": "10px"}),
+                                "Download Source Archive",
+                                width="100%",
+                                class_name="btn-download",
+                            ),
+                            href=State.download_url,
+                            is_external=True,
+                        ),
+                        width="100%",
+                    ),
+                ),
+
+                # ── Terminal (conditional) ────────────────────
+                rx.cond(
+                    State.logs,
+                    log_terminal(),
+                ),
+
+                class_name="glass-card",
             ),
-            min_height="100vh",
-            width="100vw",
+            class_name="page-wrapper",
         ),
     )
 
@@ -445,37 +665,33 @@ def index():
 # =========================
 
 def mount_autodev(app: FastAPI) -> FastAPI:
-    # Mount the backend API
     app.mount("/autodev", autodevapi)
 
-    # Serve static files if they exist (for production)
     static_dir = "public"
     if os.path.exists(static_dir):
         app.mount("/static", StaticFiles(directory=static_dir), name="static")
-    
+
     async def caught_all(request: Request):
         path = request.url.path
-        # Don't intercept API calls or static assets
         if path.startswith("/autodev") or path.startswith("/_") or path.startswith("/static"):
             return JSONResponse({"detail": f"Path {path} not found"}, status_code=404)
-        
         index_path = os.path.join(static_dir, "index.html")
         if os.path.exists(index_path):
             return FileResponse(index_path)
-            
-        return JSONResponse({"detail": "AutoDev Frontend not found. Please build the project."}, status_code=404)
+        return JSONResponse({"detail": "Frontend not built yet."}, status_code=404)
 
     app.add_route("/{rest_of_path:path}", caught_all, methods=["GET"])
     return app
 
 app = rx.App(
     theme=rx.theme(
-        appearance="dark", 
-        has_background=False, # We are providing our own background
+        appearance="dark",
+        has_background=False,
         radius="medium",
-        accent_color="indigo"
+        accent_color="indigo",
     ),
     api_transformer=mount_autodev,
+    stylesheets=[],
 )
 
-app.add_page(index, title="AutoDev AI | System Architect", on_load=State.reset_state)
+app.add_page(index, title="AutoDev AI — Autonomous Backend Architect", on_load=State.reset_state)
