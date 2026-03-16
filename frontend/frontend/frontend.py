@@ -253,13 +253,14 @@ html, body {
 }
 
 .header-subtitle {
-    font-size: 14px;
-    font-weight: 500;
+    font-size: 15px;
+    font-weight: 400;
     color: var(--text-secondary);
-    letter-spacing: 0.12em;
-    text-transform: uppercase;
+    letter-spacing: 0.01em;
+    text-transform: none;
     text-align: center;
     margin-bottom: 0;
+    line-height: 1.6;
 }
 
 /* =================== DIVIDER =================== */
@@ -281,6 +282,13 @@ html, body {
     display: block;
 }
 
+/* Target ALL Radix input/textarea variants for reliable production rendering */
+.rt-TextFieldRoot, .rt-TextFieldInput,
+.rt-TextAreaRoot {
+    width: 100% !important;
+    box-sizing: border-box !important;
+}
+
 .rt-TextFieldInput, .rt-TextAreaInput {
     background: rgba(255, 255, 255, 0.04) !important;
     border: 1px solid rgba(255, 255, 255, 0.08) !important;
@@ -288,9 +296,26 @@ html, body {
     color: var(--text-primary) !important;
     font-family: 'Inter', sans-serif !important;
     font-size: 14px !important;
+    line-height: 1.6 !important;
     transition: border-color 0.25s ease, box-shadow 0.25s ease, background 0.25s ease !important;
     padding: 12px 16px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
 }
+
+/* Ensure textarea minimum height is enforced at multiple levels */
+.rt-TextAreaRoot,
+.rt-TextAreaRoot > .rt-ScrollAreaRoot,
+.rt-TextAreaRoot > .rt-ScrollAreaRoot > .rt-ScrollAreaViewport {
+    min-height: 150px !important;
+    height: auto !important;
+}
+
+.rt-TextAreaInput {
+    min-height: 150px !important;
+    resize: vertical !important;
+}
+
 .rt-TextFieldInput:hover, .rt-TextAreaInput:hover {
     border-color: rgba(255,255,255,0.14) !important;
     background: rgba(255, 255, 255, 0.06) !important;
